@@ -7,9 +7,12 @@ const supabaseAnonKey = Constants.expoConfig?.extra?.EXPO_PUBLIC_SUPABASE_ANON_K
 if (!supabaseUrl || !supabaseAnonKey) {
   console.error('❌ Environment variables not found in Constants.expoConfig.extra');
   console.error('Available extra keys:', Object.keys(Constants.expoConfig?.extra || {}));
-  throw new Error('Missing Supabase environment variables. Please check your .env file and app.config.js');
+  console.error('Make sure your .env file exists and contains:');
+  console.error('EXPO_PUBLIC_SUPABASE_URL=your_supabase_url');
+  console.error('EXPO_PUBLIC_SUPABASE_ANON_KEY=your_anon_key');
+  throw new Error('Missing Supabase environment variables. Please check your .env file and restart Expo.');
 }
 
-console.log('✅ Supabase URL loaded:', supabaseUrl.substring(0, 30) + '...');
+console.log('✅ Supabase configuration loaded successfully');
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey); 
