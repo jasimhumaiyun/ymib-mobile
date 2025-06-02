@@ -6,6 +6,15 @@
 - **Repository**: https://github.com/jasimhumaiyun/ymib-mobile.git
 - **Development Team**: Human Developer + Claude + ChatGPT (collaborative pair programming)
 
+## Important Notes for AI Assistants
+
+### Environment Variables
+- **NEVER try to read `.env` files** - they are blocked by cursor ignore for security
+- The human developer has their own `.env` file with real credentials
+- We create `.env.example` files (committed to git) with placeholder values as templates
+- `.env.example` shows the required environment variables without exposing real values
+- Always assume the human has proper `.env` setup unless they specifically mention issues
+
 ## Code Style & Standards
 
 ### TypeScript
@@ -98,4 +107,5 @@ src/
 - Always maintain professional code quality
 - Keep documentation up to date
 - Think about scalability and maintainability
-- Focus on creating a delightful user experience 
+- Focus on creating a delightful user experience
+- **NEVER try to read .env files - they're blocked for security** 
