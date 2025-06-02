@@ -1,0 +1,101 @@
+# YMIB (Your Message in a Bottle) - Cursor Rules
+
+## Project Overview
+- **App Name**: Your Message in a Bottle (YMIB)
+- **Tech Stack**: Expo (React Native), TypeScript, Supabase, React Query
+- **Repository**: https://github.com/jasimhumaiyun/ymib-mobile.git
+- **Development Team**: Human Developer + Claude + ChatGPT (collaborative pair programming)
+
+## Code Style & Standards
+
+### TypeScript
+- Use strict TypeScript configuration
+- Prefer explicit types over `any`
+- Use interfaces for object shapes
+- Use enums for constants
+- Always add return types for functions
+
+### React Native / Expo
+- Use functional components with hooks
+- Prefer `const` arrow functions for components
+- Use React Query for all API calls
+- Follow Expo best practices
+- Use proper navigation patterns
+
+### File Structure
+```
+src/
+├── components/          # Reusable UI components
+├── screens/            # Screen components
+├── hooks/              # Custom hooks
+├── lib/                # Utilities and configurations
+├── types/              # TypeScript type definitions
+├── services/           # API services
+└── constants/          # App constants
+```
+
+### Naming Conventions
+- **Files**: PascalCase for components, camelCase for utilities
+- **Components**: PascalCase (e.g., `MessageBottle.tsx`)
+- **Hooks**: camelCase starting with "use" (e.g., `useMessageBottle.ts`)
+- **Types**: PascalCase with descriptive names (e.g., `MessageBottleType`)
+- **Constants**: UPPER_SNAKE_CASE
+
+### Documentation Requirements
+- Always update `PROJECT_CONTEXT.md` when making significant changes
+- Add JSDoc comments for all exported functions and components
+- Include README sections for new features
+- Document all environment variables in `.env.example`
+
+### Git Practices
+- Use conventional commits (feat:, fix:, docs:, refactor:, etc.)
+- Create meaningful commit messages
+- Always stage and commit related changes together
+
+### Code Quality
+- Write clean, readable code with proper indentation
+- Use meaningful variable and function names
+- Add proper error handling for all async operations
+- Include loading states for all async UI components
+- Add proper TypeScript error boundaries
+
+### Performance
+- Optimize images and assets
+- Use React.memo for expensive components
+- Implement proper list virtualization for long lists
+- Use lazy loading where appropriate
+
+### Security
+- Never commit sensitive data (.env files)
+- Validate all user inputs
+- Use proper authentication patterns
+- Follow Supabase security best practices
+
+### Development Workflow
+1. Always read `PROJECT_CONTEXT.md` before making changes
+2. Update context file when implementing new features
+3. Test changes before committing
+4. Follow the established patterns in the codebase
+5. Ask for clarification if requirements are unclear
+
+## Project-Specific Rules
+
+### Message in a Bottle Features
+- Focus on location-based messaging
+- Implement proper map clustering
+- Use real-time updates for new messages
+- Prioritize user privacy and data security
+- Create intuitive UX for dropping and finding messages
+
+### Supabase Integration
+- Use React Query for all database operations
+- Implement proper error handling for network issues
+- Use real-time subscriptions for live updates
+- Follow RLS (Row Level Security) patterns
+
+### Remember
+- This is a collaborative project between human, Claude, and ChatGPT
+- Always maintain professional code quality
+- Keep documentation up to date
+- Think about scalability and maintainability
+- Focus on creating a delightful user experience 

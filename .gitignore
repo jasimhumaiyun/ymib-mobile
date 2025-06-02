@@ -35,3 +35,9 @@ yarn-error.*
 
 # typescript
 *.tsbuildinfo
+
+# YMIB specific
+.env*
+!.env.example
+.vscode/settings.json
+*.log
