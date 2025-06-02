@@ -1,4 +1,19 @@
-import 'dotenv/config';
+const fs = require('fs');
+const path = require('path');
+
+// Read .env file manually
+const envPath = path.resolve(__dirname, '.env');
+let envVars = {};
+
+if (fs.existsSync(envPath)) {
+  const envContent = fs.readFileSync(envPath, 'utf8');
+  envContent.split('\n').forEach(line => {
+    const [key, value] = line.split('=');
+    if (key && value) {
+      envVars[key.trim()] = value.trim();
+    }
+  });
+}
 
 export default {
   expo: {
@@ -29,8 +44,8 @@ export default {
       favicon: "./assets/favicon.png"
     },
     extra: {
-      EXPO_PUBLIC_SUPABASE_URL: process.env.EXPO_PUBLIC_SUPABASE_URL,
-      EXPO_PUBLIC_SUPABASE_ANON_KEY: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
+      EXPO_PUBLIC_SUPABASE_URL: envVars.EXPO_PUBLIC_SUPABASE_URL || '***REMOVED***',
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: envVars.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.***REMOVED***',
     }
   }
 }; 
