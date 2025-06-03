@@ -53,13 +53,17 @@ serve(async (req) => {
       }
       
       // Create cast_away event
-      await client.from("bottle_events").insert({
+      const { error: eventError } = await client.from("bottle_events").insert({
         bottle_id: id, 
         type: "cast_away", 
         lat, 
         lon,
-        user_id: creator_id,
       });
+      
+      if (eventError) {
+        console.error('Failed to create bottle_events:', eventError);
+        return new Response("Failed to create bottle event", { status: 500 });
+      }
       
       return Response.json({ status: "new_cast_away", bottle: data });
     }
@@ -90,13 +94,17 @@ serve(async (req) => {
       }
       
       // Create cast_away event
-      await client.from("bottle_events").insert({
+      const { error: eventError } = await client.from("bottle_events").insert({
         bottle_id: id, 
         type: "cast_away", 
         lat, 
         lon,
-        user_id: creator_id,
       });
+      
+      if (eventError) {
+        console.error('Failed to create bottle_events:', eventError);
+        return new Response("Failed to create bottle event", { status: 500 });
+      }
       
       return Response.json({ status: "re_toss", bottle: data });
     }

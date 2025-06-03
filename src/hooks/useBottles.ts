@@ -58,7 +58,9 @@ export function useBottles() {
         }
       )
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    return () => { 
+      supabase.removeChannel(channel); 
+    };
   }, [qc]);
 
   return query;
