@@ -1,0 +1,8 @@
+# Supabase configuration file
+# This file configures how Supabase Edge Functions behave
+
+[functions.claim_or_toss_bottle]
+verify_jwt = false
+
+[functions.find_bottle]
+verify_jwt = false 
