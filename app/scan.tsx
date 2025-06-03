@@ -98,7 +98,8 @@ export default function ScanScreen() {
   const useDummy = async () => {
     const dummy = { 
       id: uuidv4(), 
-      password: Math.random().toString(36).slice(2, 8) 
+      // DEV ONLY: Generate random password for testing (not a real secret)
+      password: crypto.randomUUID().slice(0, 8)
     };
     await handlePayload(dummy);
   };
