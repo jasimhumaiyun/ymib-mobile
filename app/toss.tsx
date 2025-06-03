@@ -1,5 +1,5 @@
 import React from "react";
-import { View, TextInput, Button, Image, StyleSheet } from "react-native";
+import { View, TextInput, Button, Image, StyleSheet, Alert } from "react-native";
 import { useState } from "react";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
@@ -18,23 +18,87 @@ export default function TossScreen() {
     if (!r.canceled) setPhoto(r.assets[0].uri);
   };
 
+  const uploadPhoto = async (uri: string): Promise<string | null> => {
+    try {
+      const response = await fetch(uri);
+      const blob = await response.blob();
+      
+      const fileExt = uri.split('.').pop();
+      const fileName = `${Date.now()}.${fileExt}`;
+      const filePath = `bottle-photos/${fileName}`;
+
+      const { data, error } = await supabase.storage
+        .from('bottles')
+        .upload(filePath, blob);
+
+      if (error) {
+        console.error('Upload error:', error);
+        return null;
+      }
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('bottles')
+        .getPublicUrl(filePath);
+
+      return publicUrl;
+    } catch (error) {
+      console.error('Photo upload failed:', error);
+      return null;
+    }
+  };
+
   const toss = async () => {
     setLoading(true);
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== "granted") return alert("Need location permission");
-    const pos = await Location.getCurrentPositionAsync({});
-    const { data, error } = await supabase.functions.invoke("toss_bottle", {
-      body: {
-        message: msg,
-        photoUrl: photo,
-        lat: pos.coords.latitude,
-        lon: pos.coords.longitude,
-      },
-    });
-    setLoading(false);
-    if (error) return alert(error.message);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    router.replace({ pathname: "/toss/success", params: data as any });
+    
+    try {
+      // Get location permission and position
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert("Permission Required", "Location permission is needed to toss a bottle");
+        setLoading(false);
+        return;
+      }
+      
+      const pos = await Location.getCurrentPositionAsync({});
+      
+      // Upload photo if one was selected
+      let photoUrl = null;
+      if (photo) {
+        photoUrl = await uploadPhoto(photo);
+        if (!photoUrl) {
+          Alert.alert("Upload Failed", "Failed to upload photo. Try again.");
+          setLoading(false);
+          return;
+        }
+      }
+      
+      // Call edge function
+      const { data, error } = await supabase.functions.invoke("toss_bottle", {
+        body: {
+          message: msg,
+          photoUrl,
+          lat: pos.coords.latitude,
+          lon: pos.coords.longitude,
+        },
+      });
+      
+      if (error) {
+        console.error('Edge function error:', error);
+        Alert.alert("Error", `Failed to toss bottle: ${error.message}`);
+        setLoading(false);
+        return;
+      }
+      
+      // Success!
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      router.replace({ pathname: "/toss/success", params: data as any });
+      
+    } catch (error) {
+      console.error('Toss error:', error);
+      Alert.alert("Error", "Something went wrong. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

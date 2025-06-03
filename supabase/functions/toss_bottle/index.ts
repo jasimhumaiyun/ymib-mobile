@@ -4,19 +4,33 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 serve(async (req) => {
   try {
-    const { message, photoUrl, lat, lon } = await req.json();
+    console.log("Toss bottle function called");
+    
+    const body = await req.json();
+    console.log("Request body:", body);
+    
+    const { message, photoUrl, lat, lon } = body;
+    
     if (!message || lat === undefined || lon === undefined) {
-      return new Response("Bad request", { status: 400 });
+      console.log("Bad request - missing required fields");
+      return new Response("Bad request: message, lat, and lon are required", { status: 400 });
     }
     
-    const client = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    );
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    
+    if (!supabaseUrl || !serviceKey) {
+      console.log("Missing environment variables");
+      return new Response("Server configuration error", { status: 500 });
+    }
+    
+    const client = createClient(supabaseUrl, serviceKey);
     
     const password = crypto.randomUUID().slice(0, 6);
+    console.log("Generated password:", password);
     
-    const { data: bottle, error } = await client
+    // Insert bottle
+    const { data: bottle, error: bottleError } = await client
       .from("bottles")
       .insert({
         message,
@@ -29,9 +43,15 @@ serve(async (req) => {
       .select()
       .single();
       
-    if (error) throw error;
+    if (bottleError) {
+      console.log("Bottle insert error:", bottleError);
+      throw new Error(`Failed to create bottle: ${bottleError.message}`);
+    }
+    
+    console.log("Bottle created:", bottle);
 
-    await client.from("bottle_events").insert({
+    // Insert bottle event
+    const { error: eventError } = await client.from("bottle_events").insert({
       bottle_id: bottle.id,
       type: "cast_away",
       lat,
@@ -39,9 +59,18 @@ serve(async (req) => {
       text: message,
       photo_url: photoUrl,
     });
+    
+    if (eventError) {
+      console.log("Event insert error:", eventError);
+      // Don't fail the whole request if event fails
+      console.warn("Failed to create bottle event, but bottle was created successfully");
+    }
 
+    console.log("Success! Returning bottle data");
     return Response.json({ id: bottle.id, password });
+    
   } catch (e) {
-    return new Response(e.message, { status: 500 });
+    console.error("Function error:", e);
+    return new Response(`Error: ${e.message}`, { status: 500 });
   }
 }); 

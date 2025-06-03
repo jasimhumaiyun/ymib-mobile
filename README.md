@@ -181,3 +181,159 @@ To run from source:
 # Go >= 1.22
 go run . help
 ```
+
+# YMIB (Your Message in a Bottle) 🌊
+
+> **Status**: Milestone 3 Complete ✅ | **Last Updated**: 2025-06-03
+
+A location-based social app where users can drop virtual "messages in bottles" at specific geographic locations for others to discover. Built with Expo, TypeScript, and Supabase.
+
+## ✨ Features
+
+### ✅ Currently Working
+- 🗺️ **Interactive Map** - Explore bottles on Google Maps with real-time updates
+- 📍 **Location-Based Messaging** - Drop bottles at your current location
+- 📸 **Photo Support** - Attach photos to your bottle messages
+- 🔄 **Real-Time Updates** - See new bottles appear instantly on the map
+- 📱 **Cross-Platform** - Works on both iOS and Android
+- 🎯 **Smart Filtering** - Filter bottles by status (All/Tossed/Found)
+- 📳 **Haptic Feedback** - Tactile confirmation when tossing bottles
+
+### 🚧 Coming Next (Milestone 4)
+- 🔐 User authentication and profiles
+- 🔍 QR code bottle discovery
+- 👤 Message ownership and history
+
+## 🚀 Quick Start
+
+### Prerequisites
+- Node.js 18+
+- Expo CLI (`npm install -g @expo/cli`)
+- iOS Simulator or Android Emulator (or physical device)
+
+### Installation
+
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/jasimhumaiyun/ymib-mobile.git
+   cd ymib-mobile
+   ```
+
+2. **Install dependencies**
+   ```bash
+   npm install
+   ```
+
+3. **Set up environment variables**
+   ```bash
+   cp .env.example .env
+   # Edit .env with your actual values
+   ```
+
+4. **Start the development server**
+   ```bash
+   npm start
+   ```
+
+5. **Run on device/simulator**
+   - Press `i` for iOS simulator
+   - Press `a` for Android emulator
+   - Scan QR code with Expo Go app on physical device
+
+## 🔧 Environment Setup
+
+Create a `.env` file with the following variables:
+
+```bash
+# Supabase Configuration
+EXPO_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+
+# Google Maps API Keys
+IOS_GOOGLE_MAPS_KEY=your-ios-google-maps-key
+ANDROID_GOOGLE_MAPS_KEY=your-android-google-maps-key
+```
+
+### Getting API Keys
+
+1. **Supabase**: Create a project at [supabase.com](https://supabase.com)
+2. **Google Maps**: Get API keys from [Google Cloud Console](https://console.cloud.google.com)
+
+## 🏗️ Tech Stack
+
+- **Frontend**: Expo (React Native) with TypeScript
+- **Backend**: Supabase (PostgreSQL + Real-time + Storage + Edge Functions)
+- **State Management**: React Query (@tanstack/react-query)
+- **Maps**: React Native Maps with Google provider
+- **Navigation**: Expo Router (File-based routing)
+- **Photo Handling**: Expo Image Picker + Supabase Storage
+
+## 📱 How It Works
+
+### Tossing a Bottle
+1. Tap the **+** button on the home screen
+2. Write your message
+3. Optionally add a photo
+4. Tap "Toss!" to drop it at your current location
+5. Get a unique bottle ID and password
+6. Watch it appear on the map in real-time!
+
+### Exploring Bottles
+1. Go to the **Explore** tab
+2. Use the filter controls (All/Tossed/Found)
+3. Blue markers = bottles adrift
+4. Green markers = bottles found
+5. Tap markers to see basic info
+
+## 🗂️ Project Structure
+
+```
+ymib-mobile/
+├── app/                    # Expo Router screens
+│   ├── (tabs)/            # Tab navigation
+│   │   ├── index.tsx      # Home screen with FAB
+│   │   └── explore.tsx    # Map exploration
+│   ├── toss/
+│   │   └── success.tsx    # Success screen
+│   └── toss.tsx          # Toss bottle modal
+├── src/
+│   ├── hooks/            # Custom React hooks
+│   ├── lib/              # Utilities and config
+│   └── types/            # TypeScript definitions
+├── supabase/
+│   └── functions/        # Edge functions
+└── assets/               # Images and fonts
+```
+
+## 🎯 Development Milestones
+
+- ✅ **Milestone 1**: Foundation (Expo + Supabase + Navigation)
+- ✅ **Milestone 2**: Map & Exploration (Interactive map + Real-time updates)
+- ✅ **Milestone 3**: Toss Bottle Flow (Complete bottle creation with photos)
+- 🚧 **Milestone 4**: Authentication & Profiles (User accounts + QR discovery)
+- 📋 **Milestone 5**: Advanced Features (Notifications + Social features)
+
+## 🤝 Contributing
+
+This is a collaborative project between human developers and AI assistants. Please read `PROJECT_CONTEXT.md` for detailed development guidelines and current status.
+
+### Development Guidelines
+- Follow TypeScript best practices
+- Use conventional commits
+- Update documentation when adding features
+- Test on both iOS and Android
+- Follow the established code patterns
+
+## 📄 License
+
+MIT License - see [LICENSE](LICENSE) file for details.
+
+## 🔗 Links
+
+- **Repository**: https://github.com/jasimhumaiyun/ymib-mobile
+- **Supabase**: https://supabase.com
+- **Expo**: https://expo.dev
+
+---
+
+**Ready to drop your first message in a bottle?** 🍾✨
