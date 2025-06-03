@@ -16,19 +16,28 @@ export default function ScanScreen() {
   const [loading, setLoading] = useState(false);
 
   const handlePayload = async (payload: { id: string; password: string }) => {
+    console.log('🎯 handlePayload called with:', payload);
     setLoading(true);
     setStatus('Getting location...');
     
     try {
+      console.log('📍 Requesting location permission...');
       // Get location permission and position
       const { status: locationStatus } = await Location.requestForegroundPermissionsAsync();
+      console.log('📍 Location permission status:', locationStatus);
+      
       if (locationStatus !== 'granted') {
+        console.log('❌ Location permission denied');
         Alert.alert('Permission Required', 'Location permission is needed to scan bottles');
         setLoading(false);
         return;
       }
       
-      const { coords } = await Location.getCurrentPositionAsync({});
+      console.log('📍 Getting current position...');
+      const { coords } = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      console.log('📍 Got coordinates:', { lat: coords.latitude, lon: coords.longitude });
       
       setStatus('Processing bottle...');
       
@@ -82,7 +91,13 @@ export default function ScanScreen() {
       
     } catch (err) {
       console.error('Scan error:', err);
-      setStatus('❌ Something went wrong');
+      console.error('Error details:', JSON.stringify(err, null, 2));
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      if (errorMessage.includes('Location')) {
+        setStatus('❌ Location error - please enable location services');
+      } else {
+        setStatus('❌ Something went wrong');
+      }
     } finally {
       setLoading(false);
     }
