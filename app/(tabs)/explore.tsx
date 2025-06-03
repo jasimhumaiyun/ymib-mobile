@@ -76,7 +76,15 @@ export default function ExploreScreen() {
 
   // Memoize markers to prevent unnecessary re-renders
   const markers = useMemo(() => {
-    return filteredBottles.map(bottle => (
+    // Sort bottles to render green pins (found) on top of blue pins (adrift)
+    const sortedBottles = [...filteredBottles].sort((a, b) => {
+      // Green pins (found) should render last (on top)
+      if (a.status === 'found' && b.status === 'adrift') return 1;
+      if (a.status === 'adrift' && b.status === 'found') return -1;
+      return 0;
+    });
+
+    return sortedBottles.map(bottle => (
       <Marker
         key={bottle.id}
         coordinate={{ latitude: bottle.lat, longitude: bottle.lon }}
@@ -84,6 +92,8 @@ export default function ExploreScreen() {
         title={`Bottle ${bottle.id.slice(-4)}`}
         description={`Status: ${bottle.status}`}
         tracksViewChanges={false}
+        zIndex={bottle.status === 'found' ? 1000 : 100} // Green pins on top
+        opacity={bottle.status === 'found' ? 1.0 : 0.8} // Green pins more prominent
       />
     ));
   }, [filteredBottles]);
