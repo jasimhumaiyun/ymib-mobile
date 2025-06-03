@@ -31,13 +31,17 @@
 - [x] useBottles hook for data management
 - [x] Google Maps API key configuration
 
-### Milestone 3: Toss Bottle Flow (NEXT)
-- [ ] Toss bottle screen with location picker
-- [ ] Message composition interface
-- [ ] toss_bottle edge function
-- [ ] Location permissions handling
+### Milestone 3: Toss Bottle Flow ✅ (COMPLETE)
+- [x] FAB (Floating Action Button) on home screen
+- [x] Toss bottle modal with message input
+- [x] Photo picker integration
+- [x] Location permissions and current position
+- [x] toss_bottle Supabase edge function
+- [x] Success screen with bottle ID and password
+- [x] Real-time map updates (new bottles appear instantly)
+- [x] Haptic feedback on successful toss
 
-### Milestone 4: Authentication & Profiles
+### Milestone 4: Authentication & Profiles (NEXT)
 - [ ] User authentication (Supabase Auth)
 - [ ] User profiles
 - [ ] Message ownership
@@ -117,16 +121,23 @@ CREATE TABLE bottle_events (
 - ✅ Cross-platform marker optimization (iOS deterministic jitter)
 - ✅ Clean map styling (countries only, no POIs/buildings)
 - ✅ Stable map positioning during filter changes
+- ✅ FAB (Floating Action Button) on home screen
+- ✅ Toss bottle modal with message input and photo picker
+- ✅ Location permissions and current position detection
+- ✅ toss_bottle Supabase edge function
+- ✅ Success screen with bottle ID and password
+- ✅ Haptic feedback on successful bottle toss
+- ✅ Real-time map updates (new bottles appear instantly)
 - ✅ Professional development environment (.cursorrules)
 - ✅ Comprehensive project documentation
 - ✅ Git repository with proper commit history
 
 ### What's Next 🚧
-- [ ] Implement toss bottle screen with location picker
-- [ ] Create message composition interface
-- [ ] Set up toss_bottle Supabase edge function
-- [ ] Add location permissions handling
-- [ ] Create bottle detail view
+- [ ] User authentication (Supabase Auth)
+- [ ] User profiles and message ownership
+- [ ] QR code "Find Bottle" flow
+- [ ] find_bottle edge function
+- [ ] Bottle detail view with full message content
 
 ### Environment Variables
 ```bash
@@ -140,13 +151,12 @@ ANDROID_GOOGLE_MAPS_KEY=YOUR_ANDROID_GOOGLE_MAPS_API_KEY
 ## 🔄 Development Workflow
 
 ### Current Sprint Status
-**Goal**: ✅ **MILESTONE 2 COMPLETE** - Map & Exploration features implemented successfully
+**Goal**: ✅ **MILESTONE 3 COMPLETE** - Toss Bottle Flow implemented successfully
 
-**Next Goal**: Start Milestone 3 - Toss Bottle Flow
-- [ ] Create toss bottle screen
-- [ ] Implement location picker
-- [ ] Set up message composition
-- [ ] Create toss_bottle edge function
+**Next Goal**: Start Milestone 4 - Authentication & Profiles
+- [ ] User authentication (Supabase Auth)
+- [ ] User profiles and message ownership
+- [ ] QR code "Find Bottle" flow
 
 ### Decision Log
 1. **2025-01-27**: Chose Expo over React Native CLI for faster development
@@ -173,6 +183,17 @@ ANDROID_GOOGLE_MAPS_KEY=YOUR_ANDROID_GOOGLE_MAPS_API_KEY
 - All team members should read this file before making changes
 
 ## 📝 Recent Changes
+- **2025-01-27**: ✅ **MILESTONE 3 COMPLETE** 
+  - Added FAB (Floating Action Button) to home screen
+  - Created toss bottle modal with message input and photo picker
+  - Implemented location permissions and current position detection
+  - Created toss_bottle Supabase edge function for bottle creation
+  - Added success screen showing bottle ID and password
+  - Integrated haptic feedback for successful bottle toss
+  - Real-time map updates working (new bottles appear instantly)
+  - Added iOS and Android permissions for location and photos
+  - Ready to proceed to Milestone 4: Authentication & Profiles
+
 - **2025-01-27**: ✅ **MILESTONE 2 COMPLETE** 
   - Implemented bottom tab navigation with Home and Explore screens
   - Created interactive map with Google Maps provider
@@ -186,7 +207,6 @@ ANDROID_GOOGLE_MAPS_KEY=YOUR_ANDROID_GOOGLE_MAPS_API_KEY
   - Added clean map styling (countries only)
   - Configured Google Maps API keys in app.config.js
   - Cleaned up code by removing debug logs and unused imports
-  - Ready to proceed to Milestone 3
 
 ---
 *Remember to update this file whenever significant changes are made to the project!* 
