@@ -190,167 +190,105 @@ A location-based social app where users can drop virtual "messages in bottles" a
 
 ### 🗺️ Real-time Map Exploration
 - Interactive Google Maps with instant bottle updates
-- Blue markers for adrift bottles, green for found bottles
-- Smooth filtering: All/Tossed/Found bottles
-- Cross-platform optimized performance
+- Smart filtering: All/Tossed/Found bottles with live counters
+- Cross-platform optimized performance (iOS/Android)
+- Visual pin prioritization (green pins on top)
 
-### 📱 Bottle Management
+### 📱 Complete Bottle Lifecycle
 - Scan QR codes on printed bottles to claim/toss
 - Add custom messages and photos to bottles
-- Password-protected bottle finding system
-- Complete bottle lifecycle: claim → toss → find → re-toss
+- Find bottles and mark them as discovered
+- Re-toss found bottles to continue the journey
+- Anonymous access - no account required
 
 ### ⚡ Real-time Updates
 - New bottles appear on map instantly
-- Bottles turn green when found by others
+- Bottle status changes in real-time across devices
 - Powered by Supabase real-time subscriptions
+- Optimistic UI updates with server sync
 
-## 🏗️ Tech Stack
+## 🛠️ Tech Stack
 
 - **Frontend**: Expo (React Native) + TypeScript
-- **Backend**: Supabase (PostgreSQL + Edge Functions + Real-time)
-- **State Management**: React Query
-- **Maps**: Google Maps API
+- **Backend**: Supabase (PostgreSQL + Edge Functions + Storage)
+- **State Management**: React Query (@tanstack/react-query)  
+- **Maps**: Google Maps (react-native-maps)
 - **Navigation**: Expo Router
-- **Storage**: Supabase Storage (photos)
+- **Deployment**: Expo EAS Build
 
-## 🏆 Project Status: COMPLETE
+## 📱 How It Works
 
-All core milestones achieved:
-- ✅ **Milestone 1**: Foundation (Expo + Supabase + Navigation)
-- ✅ **Milestone 2**: Map & Exploration (Real-time map with filtering)
-- ✅ **Milestone 3**: Toss Bottle Flow (Photo upload + Edge functions)
-- ✅ **Milestone 4**: Claim/Find Flow (Printed bottles + Complete lifecycle)
+1. **Discover**: Explore the map to find message bottles (blue pins)
+2. **Claim**: Scan QR codes on physical bottles to claim them
+3. **Toss**: Add your message/photo and drop at your location
+4. **Find**: Visit bottle locations to mark them as found (green pins)
+5. **Re-toss**: Found bottles can be picked up and tossed again
 
-## 🛠️ Development Setup
+## 🎯 Current Status
+
+**All Core Milestones Complete** ✅
+
+- ✅ **Foundation**: Expo + Supabase + Navigation
+- ✅ **Interactive Map**: Real-time bottles with smooth filtering  
+- ✅ **Toss Flow**: Complete bottle creation with photos
+- ✅ **Claim/Find Flow**: Full bottle lifecycle management
+
+## 🚧 Development Setup
 
 ### Prerequisites
 - Node.js 18+
 - Expo CLI
-- iOS Simulator / Android Emulator
+- Supabase CLI
+- Android Studio / Xcode (for device testing)
 
 ### Installation
+```bash
+# Clone repository
+git clone https://github.com/jasimhumaiyun/ymib-mobile.git
+cd ymib-mobile
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/jasimhumaiyun/ymib-mobile.git
-   cd ymib-mobile
-   ```
+# Install dependencies
+npm install
 
-2. **Install dependencies**
-   ```bash
-   npm install
-   ```
+# Set up environment variables
+cp .env.example .env
+# Add your Supabase keys to .env
 
-3. **Environment Setup**
-   - Copy `.env.example` to `.env`
-   - Add your Supabase credentials and Google Maps API keys
-   ```bash
-   EXPO_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-   EXPO_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
-   IOS_GOOGLE_MAPS_KEY=your_ios_key
-   ANDROID_GOOGLE_MAPS_KEY=your_android_key
-   ```
-
-4. **Start development server**
-   ```bash
-   npx expo start
-   ```
+# Start development server
+npx expo start
+```
 
 ### Database Setup
+1. Create a Supabase project
+2. Run the SQL migrations in your Supabase dashboard
+3. Deploy edge functions: `supabase functions deploy`
 
-The database schema and RLS policies are already configured in production. For local development, the app connects to the production Supabase instance.
+## 🔧 Development Tools
+
+### Testing Bottle Lifecycle
+- **🔄 Test Lifecycle**: Uses same ID to test state transitions
+- **➕ Create New**: Generates random bottles for map testing
+- Built-in development mode with testing controls
 
 ### Edge Functions
+- `claim_or_toss_bottle`: Complete bottle lifecycle management
+- `find_bottle`: Mark bottles as found (prepared for future use)
+- Anonymous access enabled for seamless UX
 
-Pre-deployed Supabase Edge Functions:
-- `claim_or_toss_bottle`: Handles bottle claiming and tossing
-- `find_bottle`: Marks bottles as found
+## 🌟 Next Steps
 
-## 📱 Usage
-
-### For Users
-1. **Explore**: Open the app to see nearby bottles on the map
-2. **Scan**: Use the QR scanner to claim printed bottles
-3. **Toss**: Add your message and photo, then toss at your location
-4. **Find**: Discover bottles others have tossed and mark them as found
-
-### For Development
-- **DEV Mode**: Use "DEV: Toss Dummy Bottle" button for testing
-- **Real-time Testing**: Open multiple devices to see instant updates
-- **Photo Testing**: Upload photos to test Supabase storage integration
-
-## 🏗️ Architecture
-
-### Frontend Structure
-```
-app/
-├── (tabs)/
-│   ├── index.tsx      # Home screen with map
-│   └── explore.tsx    # Map exploration
-├── scan.tsx           # QR code scanning
-└── _layout.tsx        # Root layout
-
-src/
-├── hooks/             # React Query hooks
-├── lib/               # Supabase client
-├── types/             # TypeScript definitions
-└── constants/         # App constants
-```
-
-### Backend (Supabase)
-- **bottles**: Main bottle records with location and status
-- **bottle_events**: Real-time events for map updates
-- **public_profiles**: User profile management
-- **Storage**: Public bucket for bottle photos
-
-## 🔄 Real-time System
-
-The app uses Supabase real-time subscriptions to provide instant updates:
-
-1. **Cast Away Events**: When bottles are tossed, they appear on all users' maps instantly
-2. **Found Events**: When bottles are found, they turn green for all users
-3. **Optimistic Updates**: UI updates immediately with server confirmation
-
-## 🚀 Deployment
-
-### Mobile App
-Built for deployment with Expo EAS:
-```bash
-# Build for iOS
-eas build --platform ios
-
-# Build for Android  
-eas build --platform android
-```
-
-### Backend
-- Supabase project already configured and deployed
-- Edge functions deployed and operational
-- Database with RLS policies and real-time enabled
-
-## 🤝 Contributing
-
-This project was built collaboratively with AI assistance. The codebase follows strict TypeScript standards and includes comprehensive error handling.
-
-### Development Guidelines
-- Follow the `.cursorrules` file for coding standards
-- Update `PROJECT_CONTEXT.md` for significant changes
-- Use conventional commits (feat:, fix:, docs:, etc.)
-- Test on both iOS and Android before committing
+**Ready for Production Polish:**
+- Professional QR camera scanning
+- User authentication system  
+- Bottle content viewing modal
+- Advanced map clustering
+- Push notifications
+- User profiles and history
 
 ## 📄 License
 
-MIT License - see [LICENSE](LICENSE) file for details.
-
-## 🎯 Future Enhancements
-
-- User authentication and profiles
-- QR code camera scanning
-- Social features (comments, ratings)
-- Push notifications for nearby bottles
-- Bottle history and statistics
+MIT License - feel free to contribute or fork!
 
 ---
 
-**Built with ❤️ using Expo, Supabase, and TypeScript**
+**Built with ❤️ using Expo, Supabase, and React Native**

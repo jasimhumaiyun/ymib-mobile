@@ -22,38 +22,24 @@ export default function ScanScreen() {
   const [loading, setLoading] = useState(false);
 
   const handlePayload = async (payload: { id: string; password: string }) => {
-    console.log('🎯 handlePayload called with:', payload);
     setLoading(true);
     setStatus('Getting location...');
     
     try {
-      console.log('📍 Requesting location permission...');
       // Get location permission and position
       const { status: locationStatus } = await Location.requestForegroundPermissionsAsync();
-      console.log('📍 Location permission status:', locationStatus);
       
       if (locationStatus !== 'granted') {
-        console.log('❌ Location permission denied');
         Alert.alert('Permission Required', 'Location permission is needed to scan bottles');
         setLoading(false);
         return;
       }
       
-      console.log('📍 Getting current position...');
       const { coords } = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
       });
-      console.log('📍 Got coordinates:', { lat: coords.latitude, lon: coords.longitude });
       
       setStatus('Processing bottle...');
-      
-      console.log('Calling edge function with payload:', {
-        ...payload,
-        message: message || 'Hello from YMIB!',
-        photoUrl: null,
-        lat: coords.latitude,
-        lon: coords.longitude,
-      });
       
       // Call claim_or_toss_bottle function
       const { data, error } = await supabase.functions.invoke('claim_or_toss_bottle', {
@@ -66,11 +52,7 @@ export default function ScanScreen() {
         },
       });
       
-      console.log('Edge function response:', { data, error });
-      
       if (error) {
-        console.error('Function error:', error);
-        console.error('Error details:', JSON.stringify(error, null, 2));
         setStatus(`❌ ${error.message || 'Unknown error'}`);
         setLoading(false);
         return;
@@ -99,8 +81,6 @@ export default function ScanScreen() {
       setMessage('');
       
     } catch (err) {
-      console.error('Scan error:', err);
-      console.error('Error details:', JSON.stringify(err, null, 2));
       const errorMessage = err instanceof Error ? err.message : String(err);
       if (errorMessage.includes('Location')) {
         setStatus('❌ Location error - please enable location services');
@@ -131,33 +111,23 @@ export default function ScanScreen() {
 
   /** DEV: Test bottle lifecycle with same ID (adrift → found → adrift → ...) */
   const useDummy = async () => {
-    console.log('🚀 DEV: Test Bottle Lifecycle button pressed!');
-    console.log('🎲 Using test bottle:', DEV_BOTTLE);
     try {
-      console.log('🔄 About to call handlePayload...');
       await handlePayload(DEV_BOTTLE);
-      console.log('✅ handlePayload completed');
     } catch (error) {
-      console.error('💥 Error in useDummy:', error);
-      console.error('💥 Error details:', JSON.stringify(error, null, 2));
+      setStatus('❌ Test failed');
     }
   };
 
   /** DEV: Create new random bottle */
   const createNewBottle = async () => {
-    console.log('🚀 DEV: Create New Bottle button pressed!');
     try {
       const dummy = { 
         id: uuidv4(), 
         password: uuidv4().slice(0, 8)
       };
-      console.log('🎲 Generated new bottle:', dummy);
-      console.log('🔄 About to call handlePayload...');
       await handlePayload(dummy);
-      console.log('✅ handlePayload completed');
     } catch (error) {
-      console.error('💥 Error in createNewBottle:', error);
-      console.error('💥 Error details:', JSON.stringify(error, null, 2));
+      setStatus('❌ Failed to create bottle');
     }
   };
 
