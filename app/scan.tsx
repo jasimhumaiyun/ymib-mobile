@@ -11,7 +11,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 // DEV: Static bottle for testing lifecycle (adrift → found → adrift → ...)
 const DEV_BOTTLE = {
-  id: 'dev-test-bottle-123',
+  id: '550e8400-e29b-41d4-a716-446655440000', // Valid UUID for testing
   password: 'test123'
 };
 
