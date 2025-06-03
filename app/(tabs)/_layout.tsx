@@ -1,37 +1,33 @@
 import React from 'react';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import HomeScreen from './index';
-import ExploreScreen from './explore';
-
-const Tab = createBottomTabNavigator();
 
 export default function TabLayout() {
   return (
-    <Tab.Navigator
+    <Tabs
       screenOptions={{
         tabBarActiveTintColor: '#2196F3',
         headerShown: false,
       }}
     >
-      <Tab.Screen
-        name="Home"
-        component={HomeScreen}
+      <Tabs.Screen
+        name="index"
         options={{
+          title: 'Home',
           tabBarIcon: ({ color, focused }: { color: string; focused: boolean }) => (
             <Ionicons name={focused ? 'home' : 'home-outline'} size={24} color={color} />
           ),
         }}
       />
-      <Tab.Screen
-        name="Explore"
-        component={ExploreScreen}
+      <Tabs.Screen
+        name="explore"
         options={{
+          title: 'Explore',
           tabBarIcon: ({ color, focused }: { color: string; focused: boolean }) => (
             <Ionicons name={focused ? 'map' : 'map-outline'} size={24} color={color} />
           ),
         }}
       />
-    </Tab.Navigator>
+    </Tabs>
   );
 } 

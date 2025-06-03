@@ -56,6 +56,7 @@ export default {
     orientation: "portrait",
     icon: "./assets/icon.png",
     userInterfaceStyle: "light",
+    scheme: "ymib",
     splash: {
       image: "./assets/splash-icon.png",
       resizeMode: "contain",
@@ -63,6 +64,9 @@ export default {
     },
     assetBundlePatterns: [
       "**/*"
+    ],
+    plugins: [
+      "expo-router"
     ],
     ios: {
       supportsTablet: true,
