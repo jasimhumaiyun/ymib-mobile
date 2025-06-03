@@ -32,12 +32,20 @@ export default {
       "**/*"
     ],
     ios: {
-      supportsTablet: true
+      supportsTablet: true,
+      config: { 
+        googleMapsApiKey: envVars.IOS_GOOGLE_MAPS_KEY || '' 
+      }
     },
     android: {
       adaptiveIcon: {
         foregroundImage: "./assets/adaptive-icon.png",
         backgroundColor: "#ffffff"
+      },
+      config: { 
+        googleMaps: { 
+          apiKey: envVars.ANDROID_GOOGLE_MAPS_KEY || '' 
+        } 
       }
     },
     web: {
