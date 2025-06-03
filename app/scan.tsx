@@ -123,13 +123,20 @@ export default function ScanScreen() {
   /** iOS simulator & dev: create dummy ID on button press */
   const useDummy = async () => {
     console.log('🚀 DEV: Toss Dummy Bottle button pressed!');
-    const dummy = { 
-      id: uuidv4(), 
-      // DEV ONLY: Generate random password for testing (not a real secret)
-      password: crypto.randomUUID().slice(0, 8)
-    };
-    console.log('🎲 Generated dummy bottle:', dummy);
-    await handlePayload(dummy);
+    try {
+      const dummy = { 
+        id: uuidv4(), 
+        // DEV ONLY: Generate random password for testing (not a real secret)
+        password: uuidv4().slice(0, 8)
+      };
+      console.log('🎲 Generated dummy bottle:', dummy);
+      console.log('🔄 About to call handlePayload...');
+      await handlePayload(dummy);
+      console.log('✅ handlePayload completed');
+    } catch (error) {
+      console.error('💥 Error in useDummy:', error);
+      console.error('💥 Error details:', JSON.stringify(error, null, 2));
+    }
   };
 
   return (

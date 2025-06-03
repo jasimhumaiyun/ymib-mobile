@@ -58,8 +58,7 @@ serve(async (req) => {
         type: "cast_away", 
         lat, 
         lon,
-        text: message || "Hello from YMIB!", 
-        photo_url: photoUrl,
+        user_id: creator_id,
       });
       
       return Response.json({ status: "new_cast_away", bottle: data });
@@ -96,8 +95,7 @@ serve(async (req) => {
         type: "cast_away", 
         lat, 
         lon,
-        text: message || bottle.message, 
-        photo_url: photoUrl || bottle.photo_url,
+        user_id: creator_id,
       });
       
       return Response.json({ status: "re_toss", bottle: data });
