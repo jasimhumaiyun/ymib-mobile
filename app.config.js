@@ -68,7 +68,11 @@ export default {
       supportsTablet: true,
       config: { 
         googleMapsApiKey: envVars.IOS_GOOGLE_MAPS_KEY || '' 
-      }
+      },
+      infoPlist: {
+        NSLocationWhenInUseUsageDescription: "Shows your toss location",
+        NSPhotoLibraryUsageDescription: "Choose a photo for your bottle",
+      },
     },
     android: {
       adaptiveIcon: {
@@ -79,7 +83,8 @@ export default {
         googleMaps: { 
           apiKey: envVars.ANDROID_GOOGLE_MAPS_KEY || '' 
         } 
-      }
+      },
+      permissions: [ "ACCESS_FINE_LOCATION", "READ_MEDIA_IMAGES" ],
     },
     web: {
       favicon: "./assets/favicon.png"
