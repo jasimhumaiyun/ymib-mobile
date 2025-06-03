@@ -1,25 +1,95 @@
-import React, { useState } from 'react';
-import { View, Text, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
+import React, { useState, useMemo } from 'react';
+import { View, Text, Pressable, StyleSheet, ActivityIndicator, Platform } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useBottles, BottleMapPoint } from '../../src/hooks/useBottles';
-import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 type FilterType = 'all' | 'tossed' | 'found';
 
 export default function ExploreScreen() {
   const [filter, setFilter] = useState<FilterType>('all');
+  const [region, setRegion] = useState({
+    latitude: 40.7128,
+    longitude: -74.0060,
+    latitudeDelta: 50,
+    longitudeDelta: 50,
+  });
+  
   const { data: bottles, isLoading, error } = useBottles();
 
-  const filteredBottles = bottles?.filter(bottle => {
-    if (filter === 'all') return true;
-    if (filter === 'tossed') return bottle.status === 'adrift';
-    if (filter === 'found') return bottle.status === 'found';
-    return true;
-  }) || [];
+  // Filter bottles and add iOS jitter to prevent overlapping
+  const filteredBottles = useMemo(() => {
+    if (!bottles) return [];
+    
+    const filtered = bottles.filter(bottle => {
+      if (filter === 'all') return true;
+      if (filter === 'tossed') return bottle.status === 'adrift';
+      if (filter === 'found') return bottle.status === 'found';
+      return false;
+    });
 
-  const handleMarkerPress = (bottle: BottleMapPoint) => {
-    console.log('Bottle', bottle.id);
+    // iOS-specific fix: Add deterministic jitter to prevent overlapping markers
+    if (Platform.OS === 'ios') {
+      const coordMap = new Map<string, BottleMapPoint[]>();
+      
+      // Group bottles by coordinate
+      filtered.forEach(bottle => {
+        const coordKey = `${bottle.lat.toFixed(5)}:${bottle.lon.toFixed(5)}`;
+        if (!coordMap.has(coordKey)) {
+          coordMap.set(coordKey, []);
+        }
+        coordMap.get(coordKey)!.push(bottle);
+      });
+      
+      // Apply jitter to overlapping bottles
+      const result: BottleMapPoint[] = [];
+      coordMap.forEach(bottlesAtCoord => {
+        if (bottlesAtCoord.length === 1) {
+          result.push(bottlesAtCoord[0]);
+        } else {
+          // Multiple bottles at same coordinate - apply jitter
+          bottlesAtCoord.forEach((bottle, index) => {
+            if (index === 0) {
+              result.push(bottle);
+            } else {
+              const angle = (index * 2 * Math.PI) / bottlesAtCoord.length;
+              const distance = 0.0001 * index;
+              const jitterLat = distance * Math.cos(angle);
+              const jitterLon = distance * Math.sin(angle);
+              
+              result.push({
+                ...bottle,
+                lat: bottle.lat + jitterLat,
+                lon: bottle.lon + jitterLon,
+              });
+            }
+          });
+        }
+      });
+      
+      return result;
+    }
+    
+    // Android works fine without jitter
+    return filtered;
+  }, [bottles, filter]);
+
+  // Memoize markers to prevent unnecessary re-renders
+  const markers = useMemo(() => {
+    return filteredBottles.map(bottle => (
+      <Marker
+        key={bottle.id}
+        coordinate={{ latitude: bottle.lat, longitude: bottle.lon }}
+        pinColor={bottle.status === 'adrift' ? '#2196F3' : '#4CAF50'}
+        title={`Bottle ${bottle.id.slice(-4)}`}
+        description={`Status: ${bottle.status}`}
+        tracksViewChanges={false}
+      />
+    ));
+  }, [filteredBottles]);
+
+  const handleFilterChange = (newFilter: FilterType) => {
+    setFilter(newFilter);
   };
 
   if (isLoading) {
@@ -49,26 +119,26 @@ export default function ExploreScreen() {
       <View style={styles.segmentedControl}>
         <Pressable
           style={[styles.segment, filter === 'all' && styles.activeSegment]}
-          onPress={() => setFilter('all')}
+          onPress={() => handleFilterChange('all')}
         >
           <Text style={[styles.segmentText, filter === 'all' && styles.activeSegmentText]}>
-            All
+            All ({bottles?.length || 0})
           </Text>
         </Pressable>
         <Pressable
           style={[styles.segment, filter === 'tossed' && styles.activeSegment]}
-          onPress={() => setFilter('tossed')}
+          onPress={() => handleFilterChange('tossed')}
         >
           <Text style={[styles.segmentText, filter === 'tossed' && styles.activeSegmentText]}>
-            Tossed
+            Tossed ({bottles?.filter(b => b.status === 'adrift').length || 0})
           </Text>
         </Pressable>
         <Pressable
           style={[styles.segment, filter === 'found' && styles.activeSegment]}
-          onPress={() => setFilter('found')}
+          onPress={() => handleFilterChange('found')}
         >
           <Text style={[styles.segmentText, filter === 'found' && styles.activeSegmentText]}>
-            Found
+            Found ({bottles?.filter(b => b.status === 'found').length || 0})
           </Text>
         </Pressable>
       </View>
@@ -77,24 +147,19 @@ export default function ExploreScreen() {
       <MapView
         style={styles.map}
         provider={PROVIDER_GOOGLE}
-        initialRegion={{
-          latitude: 40.7128,
-          longitude: -74.0060,
-          latitudeDelta: 50,
-          longitudeDelta: 50,
-        }}
+        region={region}
+        onRegionChangeComplete={setRegion}
+        showsUserLocation={true}
+        showsMyLocationButton={true}
+        showsPointsOfInterest={false}
+        showsBuildings={false}
+        showsTraffic={false}
+        showsIndoors={false}
+        mapType="standard"
+        minZoomLevel={2}
+        maxZoomLevel={10}
       >
-        {filteredBottles.map((bottle) => (
-          <Marker
-            key={bottle.id}
-            coordinate={{
-              latitude: bottle.lat,
-              longitude: bottle.lon,
-            }}
-            pinColor={bottle.status === 'adrift' ? '#2196F3' : '#4CAF50'}
-            onPress={() => handleMarkerPress(bottle)}
-          />
-        ))}
+        {markers}
       </MapView>
     </SafeAreaView>
   );

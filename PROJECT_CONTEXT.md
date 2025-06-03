@@ -1,6 +1,6 @@
 # YMIB Project Context
 
-> **Last Updated**: 2025-06-02 | **Status**: Milestone 2 Complete ✅
+> **Last Updated**: 2025-01-27 | **Status**: Milestone 2 Complete ✅
 > **Development Team**: Human + Claude + ChatGPT (Collaborative Pair Programming)
 
 ## 🎯 Project Vision
@@ -22,10 +22,12 @@
 ### Milestone 2: Map & Exploration ✅ (COMPLETE)
 - [x] Bottom tab navigation (Home + Explore)
 - [x] Interactive map with Google Maps provider
-- [x] Message clustering on map (react-native-map-clustering)
 - [x] Real-time bottle updates via Supabase subscriptions
 - [x] Segmented control for filtering (All/Tossed/Found)
 - [x] Bottle markers with status-based colors
+- [x] Cross-platform marker optimization (iOS jitter fix)
+- [x] Smooth filtering transitions
+- [x] Clean, country-level map styling
 - [x] useBottles hook for data management
 - [x] Google Maps API key configuration
 
@@ -54,7 +56,6 @@
 - **State Management**: React Query (@tanstack/react-query)
 - **Maps**: React Native Maps with Google provider
 - **Navigation**: React Navigation (Bottom Tabs)
-- **Clustering**: react-native-map-clustering
 
 ### Project Structure
 ```
@@ -111,9 +112,11 @@ CREATE TABLE bottle_events (
 - ✅ Interactive map with Google Maps provider
 - ✅ Bottle data fetching with `useBottles` hook
 - ✅ Real-time bottle updates via Supabase subscriptions
-- ✅ Map clustering for bottle markers
-- ✅ Segmented control filtering (All/Tossed/Found)
+- ✅ Segmented control filtering (All/Tossed/Found) with smooth transitions
 - ✅ Status-based marker colors (blue for adrift, green for found)
+- ✅ Cross-platform marker optimization (iOS deterministic jitter)
+- ✅ Clean map styling (countries only, no POIs/buildings)
+- ✅ Stable map positioning during filter changes
 - ✅ Professional development environment (.cursorrules)
 - ✅ Comprehensive project documentation
 - ✅ Git repository with proper commit history
@@ -149,14 +152,19 @@ ANDROID_GOOGLE_MAPS_KEY=YOUR_ANDROID_GOOGLE_MAPS_API_KEY
 1. **2025-01-27**: Chose Expo over React Native CLI for faster development
 2. **2025-01-27**: Selected Supabase for backend to minimize infrastructure setup
 3. **2025-01-27**: Decided on React Query for state management and caching
-4. **2025-06-02**: Implemented React Navigation Bottom Tabs for navigation
-5. **2025-06-02**: Chose react-native-maps with Google provider for mapping
-6. **2025-06-02**: Added react-native-map-clustering for marker clustering
-7. **2025-06-02**: Implemented real-time updates using Supabase subscriptions
+4. **2025-01-27**: Implemented React Navigation Bottom Tabs for navigation
+5. **2025-01-27**: Chose react-native-maps with Google provider for mapping
+6. **2025-01-27**: Implemented real-time updates using Supabase subscriptions
+7. **2025-01-27**: Solved iOS marker overlapping with deterministic jitter algorithm
+8. **2025-01-27**: Optimized Android performance by removing unnecessary remounting
+9. **2025-01-27**: Implemented marker memoization for smooth filter transitions
 
-### Known Issues
-- TypeScript errors in react-native-maps library (known issue, doesn't affect functionality)
-- Google Maps API keys need to be added to .env file for full functionality
+### Technical Solutions Implemented
+- **iOS Marker Overlapping**: Deterministic circular jitter pattern prevents markers from overlapping at same coordinates
+- **Cross-Platform Performance**: Platform-specific optimizations (jitter for iOS, smooth transitions for Android)
+- **Map Stability**: Region state management prevents position resets during filter changes
+- **Marker Optimization**: Memoized marker components prevent unnecessary re-renders
+- **Clean UI**: Simplified map styling showing only countries, no POIs or buildings
 
 ### Team Notes
 - Repository: https://github.com/jasimhumaiyun/ymib-mobile.git
@@ -165,15 +173,19 @@ ANDROID_GOOGLE_MAPS_KEY=YOUR_ANDROID_GOOGLE_MAPS_API_KEY
 - All team members should read this file before making changes
 
 ## 📝 Recent Changes
-- **2025-06-02**: ✅ **MILESTONE 2 COMPLETE** 
+- **2025-01-27**: ✅ **MILESTONE 2 COMPLETE** 
   - Implemented bottom tab navigation with Home and Explore screens
   - Created interactive map with Google Maps provider
   - Added bottle data fetching with useBottles hook
   - Implemented real-time bottle updates via Supabase subscriptions
-  - Added map clustering for better UX with many markers
   - Created segmented control for filtering bottles by status
   - Added status-based marker colors (blue for adrift, green for found)
+  - Solved iOS marker overlapping with deterministic jitter algorithm
+  - Optimized Android for smooth filter transitions
+  - Implemented marker memoization for performance
+  - Added clean map styling (countries only)
   - Configured Google Maps API keys in app.config.js
+  - Cleaned up code by removing debug logs and unused imports
   - Ready to proceed to Milestone 3
 
 ---
