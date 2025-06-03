@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
-import MapViewClustering from 'react-native-map-clustering';
 import { useBottles, BottleMapPoint } from '../../src/hooks/useBottles';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -75,17 +74,15 @@ export default function ExploreScreen() {
       </View>
 
       {/* Map */}
-      <MapViewClustering
+      <MapView
         style={styles.map}
         provider={PROVIDER_GOOGLE}
         initialRegion={{
-          latitude: 0,
-          longitude: 0,
-          latitudeDelta: 100,
-          longitudeDelta: 100,
+          latitude: 40.7128,
+          longitude: -74.0060,
+          latitudeDelta: 50,
+          longitudeDelta: 50,
         }}
-        clusterColor="#2196F3"
-        clusterTextColor="#FFFFFF"
       >
         {filteredBottles.map((bottle) => (
           <Marker
@@ -98,7 +95,7 @@ export default function ExploreScreen() {
             onPress={() => handleMarkerPress(bottle)}
           />
         ))}
-      </MapViewClustering>
+      </MapView>
     </SafeAreaView>
   );
 }
