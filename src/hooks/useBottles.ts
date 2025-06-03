@@ -43,6 +43,20 @@ export function useBottles() {
           );
         }
       )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'bottle_events', filter: 'type=eq.found' },
+        (payload: any) => {
+          const { bottle_id } = payload.new as any;
+          qc.setQueryData<BottleMapPoint[]>(['bottles-map'], old =>
+            old ? old.map(bottle => 
+              bottle.id === bottle_id 
+                ? { ...bottle, status: 'found' as const }
+                : bottle
+            ) : old
+          );
+        }
+      )
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [qc]);

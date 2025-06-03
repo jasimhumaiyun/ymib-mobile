@@ -15,10 +15,10 @@ export default function HomeScreen() {
         {error && <Text style={{ color: 'red' }}>❌ {error}</Text>}
       </View>
       
-      {/* FAB */}
-      <Link href="/toss" asChild>
+      {/* FAB - now links to scan screen */}
+      <Link href="/scan" asChild>
         <Pressable style={styles.fab}>
-          <Ionicons name="add-circle" size={68} color="#2196F3" />
+          <Ionicons name="qr-code" size={68} color="#2196F3" />
         </Pressable>
       </Link>
     </View>

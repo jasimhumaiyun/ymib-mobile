@@ -1,11 +1,13 @@
 # YMIB Project Context
 
-> **Last Updated**: 2025-06-03 | **Status**: Milestone 3 Complete ✅
+> **Last Updated**: 2025-06-03 | **Status**: Milestone 4 In Progress 🚧
 > **Development Team**: Human + Claude + ChatGPT (Collaborative Pair Programming)
 
 ## 🎯 Project Vision
 
 **Your Message in a Bottle (YMIB)** is a location-based social app where users can drop virtual "messages in bottles" at specific geographic locations for others to discover. Think of it as digital geocaching meets social messaging.
+
+**Key Insight**: Physical bottles are pre-printed with QR codes containing unique IDs and passwords. The app claims/finds existing bottles rather than generating new ones.
 
 ## 📱 Core Features (Planned)
 
@@ -47,11 +49,18 @@
 - [x] Error handling and user feedback
 - [x] Cross-platform permissions (iOS + Android)
 
-### Milestone 4: Authentication & Profiles (NEXT)
+### Milestone 4: Claim/Find with Printed Bottles 🚧 (IN PROGRESS)
+- [x] Database schema updates (creator_id, public_profiles, RLS policies)
+- [x] claim_or_toss_bottle edge function (handles pre-printed bottle IDs)
+- [x] find_bottle edge function (marks bottles as found)
+- [x] Scan screen with QR input and dummy ID mode for development
+- [x] Updated FAB to link to scan screen (QR code icon)
+- [x] Real-time updates for found events (blue → green markers)
+- [x] Removed old toss modal (replaced by scan functionality)
 - [ ] User authentication (Supabase Auth)
-- [ ] User profiles
-- [ ] Message ownership
-- [ ] QR code "Find Bottle" flow
+- [ ] User profiles and ownership tracking
+- [ ] QR code camera scanning (currently text input)
+- [ ] Find bottle flow integration
 
 ### Milestone 5: Advanced Features
 - [ ] Real-time notifications
@@ -68,6 +77,7 @@
 - **Maps**: React Native Maps with Google provider
 - **Navigation**: Expo Router (File-based routing)
 - **Photo Handling**: Expo Image Picker + Supabase Storage
+- **QR Handling**: UUID generation for dev mode, text input for QR data
 
 ### Project Structure
 ```
@@ -79,7 +89,7 @@ ymib-mobile/
 │   │   └── explore.tsx     # Map exploration screen
 │   ├── toss/
 │   │   └── success.tsx     # Success screen after tossing
-│   ├── toss.tsx           # Toss bottle modal
+│   ├── scan.tsx           # QR scan/claim screen (replaces toss.tsx)
 │   └── _layout.tsx        # Root layout with QueryClient
 ├── src/
 │   ├── hooks/             # Custom hooks (useBottles, usePingSupabase)
@@ -88,7 +98,9 @@ ymib-mobile/
 │   └── constants/         # App constants
 ├── supabase/
 │   └── functions/
-│       └── toss_bottle/   # Edge function for bottle creation
+│       ├── toss_bottle/   # Legacy edge function
+│       ├── claim_or_toss_bottle/  # New claim/toss function
+│       └── find_bottle/   # Find bottle function
 ├── assets/                # Images, fonts, etc.
 ├── .cursorrules          # Development guidelines
 ├── PROJECT_CONTEXT.md    # This file
@@ -106,8 +118,17 @@ CREATE TABLE bottles (
   lon DOUBLE PRECISION NOT NULL,
   status TEXT CHECK (status IN ('adrift', 'found')) DEFAULT 'adrift',
   password_hash TEXT NOT NULL,
+  creator_id UUID REFERENCES public_profiles,  -- NEW: ownership tracking
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Public profiles table (NEW)
+CREATE TABLE public_profiles (
+  id UUID PRIMARY KEY REFERENCES auth.users ON DELETE CASCADE,
+  username TEXT UNIQUE,
+  avatar_url TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Bottle events table (for real-time updates)
@@ -123,6 +144,7 @@ CREATE TABLE bottle_events (
 );
 
 -- Storage bucket: 'bottles' (public access for photo URLs)
+-- RLS policies: Public select, owner modify
 ```
 
 ## 🔧 Current State
@@ -135,21 +157,23 @@ CREATE TABLE bottle_events (
 - ✅ Bottom tab navigation with Home and Explore tabs
 - ✅ Interactive map with Google Maps provider
 - ✅ Bottle data fetching with `useBottles` hook
-- ✅ Real-time bottle updates via Supabase subscriptions
+- ✅ Real-time bottle updates via Supabase subscriptions (cast_away + found events)
 - ✅ Segmented control filtering (All/Tossed/Found) with smooth transitions
 - ✅ Status-based marker colors (blue for adrift, green for found)
 - ✅ Cross-platform marker optimization (iOS deterministic jitter)
 - ✅ Clean map styling (countries only, no POIs/buildings)
 - ✅ Stable map positioning during filter changes
-- ✅ FAB (Floating Action Button) on home screen
-- ✅ Toss bottle modal with message input and photo picker
+- ✅ FAB (Floating Action Button) with QR code icon linking to scan screen
+- ✅ Scan screen with QR data input and message input
+- ✅ Development dummy ID mode for testing without physical bottles
+- ✅ claim_or_toss_bottle edge function (deployed and working)
+- ✅ find_bottle edge function (deployed and working)
 - ✅ Location permissions and current position detection
 - ✅ Photo upload to Supabase storage with public URLs
-- ✅ toss_bottle Supabase edge function (deployed and working)
 - ✅ Success screen with bottle ID and password
 - ✅ Haptic feedback on successful bottle toss
-- ✅ Real-time map updates (new bottles appear instantly)
-- ✅ Complete database schema with RLS policies
+- ✅ Real-time map updates (new bottles appear instantly, found bottles turn green)
+- ✅ Complete database schema with RLS policies and profiles
 - ✅ Storage RLS policies for public photo access
 - ✅ Error handling and user feedback
 - ✅ Professional development environment (.cursorrules)
@@ -158,8 +182,8 @@ CREATE TABLE bottle_events (
 ### What's Next 🚧
 - [ ] User authentication (Supabase Auth)
 - [ ] User profiles and message ownership
-- [ ] QR code "Find Bottle" flow
-- [ ] find_bottle edge function
+- [ ] QR code camera scanning (replace text input)
+- [ ] Find bottle flow integration in scan screen
 - [ ] Bottle detail view with full message content
 
 ### Environment Variables
@@ -182,33 +206,45 @@ ANDROID_GOOGLE_MAPS_KEY=your_android_google_maps_key
   "expo-image-picker": "~16.1.4",
   "expo-location": "~18.1.5",
   "react-native-maps": "1.20.1",
-  "react-native-safe-area-context": "5.4.0"
+  "react-native-safe-area-context": "5.4.0",
+  "react-native-qrcode-scanner": "^1.5.5",
+  "react-native-get-random-values": "^1.11.0",
+  "uuid": "^10.0.0"
 }
 ```
 
-## 🎯 Milestone 3 Achievements
+## 🎯 Milestone 4 Achievements (In Progress)
 
-### Complete End-to-End Bottle Tossing Flow
-1. **User taps FAB** on home screen
-2. **Enters message** in toss modal
-3. **Optionally selects photo** from device gallery
-4. **Grants location permission** and gets current position
-5. **Photo uploads** to Supabase storage (if selected)
-6. **Edge function creates** bottle record in database
-7. **Success screen shows** bottle ID and password
-8. **Real-time update** adds new blue marker to map instantly
-9. **Haptic feedback** confirms successful toss
+### Printed Bottle Claim/Find Flow
+1. **Physical bottles exist** with pre-printed QR codes (ID + password)
+2. **Scan screen handles both** claim/toss and find operations
+3. **Development mode** with dummy ID generation for testing
+4. **claim_or_toss_bottle function** handles:
+   - New bottle claim → creates bottle record + cast_away event
+   - Re-toss found bottle → updates status to adrift + new cast_away event
+   - Already adrift bottle → returns current status
+5. **find_bottle function** marks bottles as found + creates found event
+6. **Real-time updates** for both cast_away and found events
+7. **Database ownership** tracking with creator_id and profiles
 
-### Technical Infrastructure
-- ✅ **Supabase Storage**: Public bucket for bottle photos
-- ✅ **Edge Functions**: Deployed toss_bottle function
-- ✅ **Database Schema**: Complete bottles + bottle_events tables
-- ✅ **RLS Policies**: Public access for bottles and storage
-- ✅ **Real-time Subscriptions**: Instant map updates
-- ✅ **Cross-platform Support**: iOS and Android permissions
-- ✅ **Error Handling**: Comprehensive user feedback
+### Technical Infrastructure Updates
+- ✅ **Database Schema**: Added creator_id, public_profiles table, RLS policies
+- ✅ **Edge Functions**: claim_or_toss_bottle and find_bottle deployed
+- ✅ **Real-time Subscriptions**: Added found event listener
+- ✅ **Scan Interface**: QR data input with dev dummy mode
+- ✅ **Navigation Updates**: FAB now opens scan screen with QR icon
 
 ## 📝 Recent Changes
+
+- **2025-06-03**: 🚧 **MILESTONE 4 BEGUN** - Printed-Bottle Claim + Find
+  - Updated database schema with creator_id and public_profiles table
+  - Created claim_or_toss_bottle edge function for pre-printed bottle handling
+  - Created find_bottle edge function for marking bottles as found
+  - Implemented scan screen with QR input and dummy ID mode for development
+  - Updated FAB to link to scan screen with QR code icon
+  - Added real-time updates for found events (blue → green markers)
+  - Removed old toss modal (replaced by scan functionality)
+  - Deployed new edge functions successfully
 
 - **2025-06-03**: ✅ **MILESTONE 3 COMPLETE** 
   - Fixed database schema by adding missing `message` and `photo_url` columns
@@ -236,6 +272,6 @@ ANDROID_GOOGLE_MAPS_KEY=your_android_google_maps_key
 
 ---
 
-**Ready for Milestone 4: Authentication & Profiles** 🚀
+**Ready to complete Milestone 4: Authentication & Profiles** 🚀
 
 *Remember to update this file whenever significant changes are made to the project!* 
