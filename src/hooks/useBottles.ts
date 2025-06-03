@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { AppState } from 'react-native';
 
 export interface BottleMapPoint {
   id: string;
@@ -9,13 +10,14 @@ export interface BottleMapPoint {
   lon: number;
 }
 
-export function useBottles() {
+export function useBottles(isMapActive: boolean = true) {
   const qc = useQueryClient();
 
   // initial fetch
   const query = useQuery({
     queryKey: ['bottles-map'],
     queryFn: async (): Promise<BottleMapPoint[]> => {
+      console.log('🔄 Fetching bottles from database...');
       const { data, error } = await supabase
         .from('bottles')
         .select('id, status, lat, lon');
@@ -29,51 +31,50 @@ export function useBottles() {
     }
   });
 
-  // realtime updates
+  // Smart polling - refresh on map open + every 5 minutes if constantly open
   useEffect(() => {
+    if (!isMapActive) {
+      console.log('⏸️ Map not active, skipping polling');
+      return;
+    }
+
+    console.log('🔄 Map opened - refreshing bottles...');
+    // Immediate refresh when map opens
+    qc.invalidateQueries({ queryKey: ['bottles-map'] });
+    
+    // Try real-time first (in case it becomes available)
     const channel = supabase
-      .channel('public:bottle_events')
+      .channel('bottles-realtime')
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'bottle_events', filter: 'type=eq.cast_away' },
+        { event: '*', schema: 'public', table: 'bottles' },
         (payload: any) => {
-          const { bottle_id, lat, lon } = payload.new as any;
-          qc.setQueryData<BottleMapPoint[]>(['bottles-map'], old => {
-            if (!old) return old;
-            
-            // Check if bottle already exists (re-toss case)
-            const existingIndex = old.findIndex(bottle => bottle.id === bottle_id);
-            if (existingIndex !== -1) {
-              // Update existing bottle to adrift status with new coordinates
-              const updated = [...old];
-              updated[existingIndex] = { id: bottle_id, status: 'adrift', lat, lon };
-              return updated;
-            } else {
-              // Add new bottle
-              return [...old, { id: bottle_id, status: 'adrift', lat, lon }];
-            }
-          });
+          console.log('🔥 Real-time event received:', payload.eventType);
+          qc.invalidateQueries({ queryKey: ['bottles-map'] });
         }
       )
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'bottle_events', filter: 'type=eq.found' },
-        (payload: any) => {
-          const { bottle_id } = payload.new as any;
-          qc.setQueryData<BottleMapPoint[]>(['bottles-map'], old =>
-            old ? old.map(bottle => 
-              bottle.id === bottle_id 
-                ? { ...bottle, status: 'found' as const }
-                : bottle
-            ) : old
-          );
+      .subscribe((status) => {
+        console.log('📡 Real-time status:', status);
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Real-time working! No need for polling.');
+          return;
         }
-      )
-      .subscribe();
+      });
+
+    // Fallback: Refresh every 5 minutes only if map stays open
+    const pollInterval = setInterval(() => {
+      if (AppState.currentState === 'active') {
+        console.log('🔄 5-minute refresh while map is open...');
+        qc.invalidateQueries({ queryKey: ['bottles-map'] });
+      }
+    }, 300000); // 5 minutes = 300,000ms
+      
     return () => { 
+      console.log('🛑 Cleaning up bottles polling');
+      clearInterval(pollInterval);
       supabase.removeChannel(channel); 
     };
-  }, [qc]);
+  }, [qc, isMapActive]);
 
   return query;
 } 

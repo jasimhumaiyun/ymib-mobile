@@ -66,7 +66,8 @@ export default {
       "**/*"
     ],
     plugins: [
-      "expo-router"
+      "expo-router",
+      "expo-barcode-scanner"
     ],
     ios: {
       supportsTablet: true,
@@ -76,6 +77,7 @@ export default {
       infoPlist: {
         NSLocationWhenInUseUsageDescription: "Shows your toss location",
         NSPhotoLibraryUsageDescription: "Choose a photo for your bottle",
+        NSCameraUsageDescription: "Scan QR codes on bottles",
       },
     },
     android: {
@@ -88,7 +90,11 @@ export default {
           apiKey: envVars.ANDROID_GOOGLE_MAPS_KEY || '' 
         } 
       },
-      permissions: [ "ACCESS_FINE_LOCATION", "READ_MEDIA_IMAGES" ],
+      permissions: [ 
+        "ACCESS_FINE_LOCATION", 
+        "READ_MEDIA_IMAGES",
+        "CAMERA"
+      ],
     },
     web: {
       favicon: "./assets/favicon.png"

@@ -3,6 +3,8 @@ import { View, Text, Pressable, StyleSheet, ActivityIndicator, Platform } from '
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useBottles, BottleMapPoint } from '../../src/hooks/useBottles';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
+import { useQueryClient } from '@tanstack/react-query';
 
 type FilterType = 'all' | 'tossed' | 'found';
 
@@ -15,7 +17,16 @@ export default function ExploreScreen() {
     longitudeDelta: 50,
   });
   
-  const { data: bottles, isLoading, error } = useBottles();
+  const qc = useQueryClient();
+  const { data: bottles, isLoading, error } = useBottles(true);
+
+  // Refresh map data whenever this tab is focused
+  useFocusEffect(
+    React.useCallback(() => {
+      console.log('🗺️ Explore tab focused - refreshing map data...');
+      qc.invalidateQueries({ queryKey: ['bottles-map'] });
+    }, [qc])
+  );
 
   // Filter bottles and add iOS jitter to prevent overlapping
   const filteredBottles = useMemo(() => {

@@ -4,8 +4,11 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 serve(async (req) => {
   try {
     const { id, password, message, photoUrl, lat, lon } = await req.json();
-
+    
+    console.log('Received request:', { id, password, message, photoUrl, lat, lon });
+    
     if (!id || !password || lat === undefined || lon === undefined) {
+      console.log('Missing required fields');
       return new Response("Missing required fields: id, password, lat, lon", { status: 400 });
     }
 
@@ -14,24 +17,18 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    // Get auth user if any
-    const authHeader = req.headers.get('Authorization');
-    let creator_id = null;
-    
-    if (authHeader) {
-      const { data: { user } } = await client.auth.getUser(authHeader.replace('Bearer ', ''));
-      creator_id = user?.id ?? null;
-    }
-
     // Try to fetch existing bottle
-    const { data: bottle } = await client
+    const { data: bottle, error: fetchError } = await client
       .from("bottles")
       .select("*")
       .eq("id", id)
       .maybeSingle();
 
-    // 1) Never seen before → initial claim + cast_away
+    console.log('Fetch result:', { bottle, fetchError });
+
+    // Case 1: Bottle doesn't exist - create new one (Toss flow)
     if (!bottle) {
+      console.log('Creating new bottle');
       const { data, error } = await client
         .from("bottles")
         .insert({
@@ -42,108 +39,91 @@ serve(async (req) => {
           lat, 
           lon,
           status: "adrift",
-          creator_id,
         })
         .select()
         .single();
-        
+
       if (error) {
         console.error("Insert error:", error);
-        return new Response(error.message, { status: 500 });
+        return new Response(`Insert error: ${error.message}`, { status: 500 });
       }
       
       // Create cast_away event
       const { error: eventError } = await client.from("bottle_events").insert({
         bottle_id: id, 
-        type: "cast_away", 
+        event_type: "cast_away", 
         lat, 
         lon,
+        message: message || "Hello from YMIB!",
+        photo_url: photoUrl
       });
       
       if (eventError) {
         console.error('Failed to create bottle_events:', eventError);
-        return new Response("Failed to create bottle event", { status: 500 });
       }
       
-      return Response.json({ status: "new_cast_away", bottle: data });
+      return Response.json({ 
+        success: true, 
+        message: "Bottle tossed successfully",
+        bottle: data 
+      });
     }
 
-    // Password mismatch
+    // Case 2: Bottle exists - check password and update (Found flow)
     if (bottle.password_hash !== password) {
-      return new Response("Bad password", { status: 401 });
+      return new Response("Invalid password", { status: 401 });
     }
 
-    // 2) Bottle currently adrift → mark as found
-    if (bottle.status === "adrift") {
-      const { data, error } = await client
-        .from("bottles")
-        .update({
-          status: "found",
-        })
-        .eq("id", id)
-        .select()
-        .single();
-        
-      if (error) {
-        console.error("Update error:", error);
-        return new Response(error.message, { status: 500 });
-      }
-      
-      // Create found event
-      const { error: eventError } = await client.from("bottle_events").insert({
-        bottle_id: id, 
-        type: "found", 
-        lat, 
+    // Determine if this is a "mark as found" vs "re-toss" action
+    // If NO message parameter provided, it's just marking as found
+    // If message parameter provided (even if empty string), it's a re-toss
+    const isReToss = message !== undefined;
+    const newStatus = isReToss ? "adrift" : "found";
+    const eventType = isReToss ? "cast_away" : "found";
+
+    console.log('Action type:', { isReToss, newStatus, eventType, messageProvided: message !== undefined, message });
+
+    // Update the bottle with new message/photo and location
+    const { data, error } = await client
+      .from("bottles")
+      .update({
+        message: isReToss ? (message || "Continuing the journey...") : bottle.message,
+        photo_url: photoUrl || bottle.photo_url,
+        lat,
         lon,
-      });
+        status: newStatus,
+        found_at: new Date().toISOString()
+      })
+      .eq("id", id)
+      .select()
+      .single();
       
-      if (eventError) {
-        console.error('Failed to create bottle_events:', eventError);
-        return new Response("Failed to create bottle event", { status: 500 });
-      }
-      
-      return Response.json({ status: "found", bottle: data });
+    if (error) {
+      console.error("Update error:", error);
+      return new Response(error.message, { status: 500 });
     }
-
-    // 3) Bottle currently found → re-toss (with new message/photo if provided)
-    if (bottle.status === "found") {
-      const { data, error } = await client
-        .from("bottles")
-        .update({
-          status: "adrift",
-          message: message || bottle.message,
-          photo_url: photoUrl || bottle.photo_url,
-          lat, 
-          lon,
-        })
-        .eq("id", id)
-        .select()
-        .single();
-        
-      if (error) {
-        console.error("Update error:", error);
-        return new Response(error.message, { status: 500 });
-      }
-      
-      // Create cast_away event
-      const { error: eventError } = await client.from("bottle_events").insert({
-        bottle_id: id, 
-        type: "cast_away", 
-        lat, 
-        lon,
-      });
-      
-      if (eventError) {
-        console.error('Failed to create bottle_events:', eventError);
-        return new Response("Failed to create bottle event", { status: 500 });
-      }
-      
-      return Response.json({ status: "re_toss", bottle: data });
-    }
-
-    // This should never happen, but just in case
-    return Response.json({ status: "unknown_state", bottle });
     
+    // Create appropriate event
+    const { error: eventError } = await client.from("bottle_events").insert({
+      bottle_id: id, 
+      event_type: eventType, 
+      lat,
+      lon,
+      message: isReToss ? (message || "Continuing the journey...") : bottle.message,
+      photo_url: photoUrl || bottle.photo_url
+    });
+    
+    if (eventError) {
+      console.error('Failed to create bottle_events:', eventError);
+      // Don't fail the whole operation for event logging
+    }
+    
+    return Response.json({ 
+      success: true, 
+      message: "Bottle updated successfully",
+      bottle: data 
+    });
+
   } catch (error) {
     console.error("Function error:", error);
     return new Response(`Error: ${error.message}`, { status: 500 });
