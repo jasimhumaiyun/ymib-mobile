@@ -32,6 +32,14 @@ export default function ScanScreen() {
       
       setStatus('Processing bottle...');
       
+      console.log('Calling edge function with payload:', {
+        ...payload,
+        message: message || 'Hello from YMIB!',
+        photoUrl: null,
+        lat: coords.latitude,
+        lon: coords.longitude,
+      });
+      
       // Call claim_or_toss_bottle function
       const { data, error } = await supabase.functions.invoke('claim_or_toss_bottle', {
         body: {
@@ -43,9 +51,12 @@ export default function ScanScreen() {
         },
       });
       
+      console.log('Edge function response:', { data, error });
+      
       if (error) {
         console.error('Function error:', error);
-        setStatus(`❌ ${error.message}`);
+        console.error('Error details:', JSON.stringify(error, null, 2));
+        setStatus(`❌ ${error.message || 'Unknown error'}`);
         setLoading(false);
         return;
       }
@@ -96,11 +107,13 @@ export default function ScanScreen() {
 
   /** iOS simulator & dev: create dummy ID on button press */
   const useDummy = async () => {
+    console.log('🚀 DEV: Toss Dummy Bottle button pressed!');
     const dummy = { 
       id: uuidv4(), 
       // DEV ONLY: Generate random password for testing (not a real secret)
       password: crypto.randomUUID().slice(0, 8)
     };
+    console.log('🎲 Generated dummy bottle:', dummy);
     await handlePayload(dummy);
   };
 
@@ -135,6 +148,13 @@ export default function ScanScreen() {
         {__DEV__ && (
           <View style={styles.devSection}>
             <Text style={styles.devTitle}>Development Mode</Text>
+            <Button
+              title="TEST: Simple Alert"
+              onPress={() => {
+                console.log('🧪 Test button pressed!');
+                Alert.alert('Test', 'Button works!');
+              }}
+            />
             <Button
               title="DEV: Toss Dummy Bottle"
               onPress={useDummy}
