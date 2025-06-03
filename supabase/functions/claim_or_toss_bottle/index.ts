@@ -73,7 +73,39 @@ serve(async (req) => {
       return new Response("Bad password", { status: 401 });
     }
 
-    // 2) Bottle currently found → re-toss
+    // 2) Bottle currently adrift → mark as found
+    if (bottle.status === "adrift") {
+      const { data, error } = await client
+        .from("bottles")
+        .update({
+          status: "found",
+        })
+        .eq("id", id)
+        .select()
+        .single();
+        
+      if (error) {
+        console.error("Update error:", error);
+        return new Response(error.message, { status: 500 });
+      }
+      
+      // Create found event
+      const { error: eventError } = await client.from("bottle_events").insert({
+        bottle_id: id, 
+        type: "found", 
+        lat, 
+        lon,
+      });
+      
+      if (eventError) {
+        console.error('Failed to create bottle_events:', eventError);
+        return new Response("Failed to create bottle event", { status: 500 });
+      }
+      
+      return Response.json({ status: "found", bottle: data });
+    }
+
+    // 3) Bottle currently found → re-toss (with new message/photo if provided)
     if (bottle.status === "found") {
       const { data, error } = await client
         .from("bottles")
@@ -109,8 +141,8 @@ serve(async (req) => {
       return Response.json({ status: "re_toss", bottle: data });
     }
 
-    // 3) Already adrift
-    return Response.json({ status: "already_adrift", bottle });
+    // This should never happen, but just in case
+    return Response.json({ status: "unknown_state", bottle });
     
   } catch (error) {
     console.error("Function error:", error);

@@ -9,6 +9,12 @@ import { v4 as uuidv4 } from 'uuid';
 // Note: react-native-qrcode-scanner requires camera permissions and native setup
 // For now, we'll use a simple input field for QR data and add proper QR scanning later
 
+// DEV: Static bottle for testing lifecycle (adrift → found → adrift → ...)
+const DEV_BOTTLE = {
+  id: 'dev-test-bottle-123',
+  password: 'test123'
+};
+
 export default function ScanScreen() {
   const [qrData, setQrData] = useState('');
   const [message, setMessage] = useState('');
@@ -73,10 +79,13 @@ export default function ScanScreen() {
       // Handle different response statuses
       switch (data.status) {
         case 'new_cast_away':
-          setStatus('✅ New bottle claimed and tossed!');
+          setStatus('✅ New bottle claimed and tossed! (Blue pin)');
+          break;
+        case 'found':
+          setStatus('✅ Bottle found! (Green pin)');
           break;
         case 're_toss':
-          setStatus('✅ Bottle re-tossed successfully!');
+          setStatus('✅ Bottle re-tossed successfully! (Blue pin)');
           break;
         case 'already_adrift':
           setStatus('ℹ️ Bottle is already adrift');
@@ -120,21 +129,34 @@ export default function ScanScreen() {
     }
   };
 
-  /** iOS simulator & dev: create dummy ID on button press */
+  /** DEV: Test bottle lifecycle with same ID (adrift → found → adrift → ...) */
   const useDummy = async () => {
-    console.log('🚀 DEV: Toss Dummy Bottle button pressed!');
+    console.log('🚀 DEV: Test Bottle Lifecycle button pressed!');
+    console.log('🎲 Using test bottle:', DEV_BOTTLE);
+    try {
+      console.log('🔄 About to call handlePayload...');
+      await handlePayload(DEV_BOTTLE);
+      console.log('✅ handlePayload completed');
+    } catch (error) {
+      console.error('💥 Error in useDummy:', error);
+      console.error('💥 Error details:', JSON.stringify(error, null, 2));
+    }
+  };
+
+  /** DEV: Create new random bottle */
+  const createNewBottle = async () => {
+    console.log('🚀 DEV: Create New Bottle button pressed!');
     try {
       const dummy = { 
         id: uuidv4(), 
-        // DEV ONLY: Generate random password for testing (not a real secret)
         password: uuidv4().slice(0, 8)
       };
-      console.log('🎲 Generated dummy bottle:', dummy);
+      console.log('🎲 Generated new bottle:', dummy);
       console.log('🔄 About to call handlePayload...');
       await handlePayload(dummy);
       console.log('✅ handlePayload completed');
     } catch (error) {
-      console.error('💥 Error in useDummy:', error);
+      console.error('💥 Error in createNewBottle:', error);
       console.error('💥 Error details:', JSON.stringify(error, null, 2));
     }
   };
@@ -170,16 +192,18 @@ export default function ScanScreen() {
         {__DEV__ && (
           <View style={styles.devSection}>
             <Text style={styles.devTitle}>Development Mode</Text>
+            <Text style={styles.devHelp}>
+              🔄 Test Lifecycle: Uses same ID (adrift → found → adrift)
+              {'\n'}➕ New Bottle: Creates random ID (always new)
+            </Text>
             <Button
-              title="TEST: Simple Alert"
-              onPress={() => {
-                console.log('🧪 Test button pressed!');
-                Alert.alert('Test', 'Button works!');
-              }}
+              title="🔄 DEV: Test Bottle Lifecycle"
+              onPress={useDummy}
+              disabled={loading}
             />
             <Button
-              title="DEV: Toss Dummy Bottle"
-              onPress={useDummy}
+              title="➕ DEV: Create New Bottle"
+              onPress={createNewBottle}
               disabled={loading}
             />
           </View>
@@ -231,6 +255,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     color: '#666',
+  },
+  devHelp: {
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'center',
   },
   statusContainer: {
     padding: 12,
