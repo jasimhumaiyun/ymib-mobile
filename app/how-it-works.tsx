@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import { Colors, Typography, Spacing, BorderRadius, Shadows, Copy } from '../src/constants/theme';
+import { Colors, Typography, Spacing, BorderRadius, Shadows } from '../src/constants/theme';
 
 export default function HowItWorksScreen() {
   return (

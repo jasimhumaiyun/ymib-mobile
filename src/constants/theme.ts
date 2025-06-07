@@ -189,35 +189,6 @@ export const Shadows = {
   },
 };
 
-// Mysterious Maritime Copy
-export const Copy = {
-  // Replace playful tone with mysterious/poetic
-  greetings: [
-    "Welcome, wanderer of the seas...",
-    "The ocean calls to you, voyager...",
-    "Your journey begins in the depths...",
-    "The tides have brought you here...",
-  ],
-  
-  actions: {
-    // Replace "matey" with poetic alternatives
-    scan: "Seek the Message",
-    create: "Cast Your Words",
-    find: "Discover the Secret",
-    retoss: "Continue the Journey",
-  },
-
-  // Nautical terminology without heavy pirate accent
-  terms: {
-    bottle: "vessel",
-    message: "whisper",
-    journey: "voyage",
-    location: "harbor",
-    user: "voyager",
-    friend: "fellow traveler",
-  },
-};
-
 // Component Styles
 export const ComponentStyles = {
   button: {
@@ -274,6 +245,5 @@ export default {
   Spacing,
   BorderRadius,
   Shadows,
-  Copy,
   ComponentStyles,
 }; 
