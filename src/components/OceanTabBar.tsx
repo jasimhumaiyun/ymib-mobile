@@ -120,7 +120,7 @@ const styles = StyleSheet.create({
     height: 90,
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingTop: 32, // 32dp so icons sit dead-centre in visible dark area
+    paddingTop: 45, // Center icons in the 90dp nav bar
     zIndex: 1,
   },
   leftStack: {
@@ -129,7 +129,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-around',
   },
   spacer: {
-    width: 90, // 90dp width matches notch
+    width: 100, // Match the wider notch
   },
   rightStack: {
     flex: 1,

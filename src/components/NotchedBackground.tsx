@@ -7,21 +7,21 @@ const { width } = Dimensions.get('window');
 const NotchedBackground: React.FC = () => {
   const W = width;
   const H = 90; // 90 dp tall
-  const notchDepth = 10; // 10 dp deep
-  const notchWidth = 90; // 90 dp wide
+  const notchDepth = 20; // Deeper notch to make it more visible
+  const notchWidth = 100; // Wider notch
   const cornerRadius = 20; // 20 dp corner radius
   const Cx = W / 2; // Center X
 
-  // Create concave notch with even-odd fill rule
+  // Create a more visible concave notch
   const pathData = `
     M ${cornerRadius} 0
     L ${Cx - notchWidth/2} 0
-    Q ${Cx - notchWidth/2 + 8} 0 ${Cx - notchWidth/2 + 12} 2
-    Q ${Cx - 20} 6 ${Cx - 12} ${notchDepth}
-    Q ${Cx - 6} ${notchDepth + 1} ${Cx} ${notchDepth + 1}
-    Q ${Cx + 6} ${notchDepth + 1} ${Cx + 12} ${notchDepth}
-    Q ${Cx + 20} 6 ${Cx + notchWidth/2 - 12} 2
-    Q ${Cx + notchWidth/2 - 8} 0 ${Cx + notchWidth/2} 0
+    Q ${Cx - notchWidth/2 + 10} 0 ${Cx - notchWidth/2 + 15} 5
+    Q ${Cx - 30} 12 ${Cx - 20} ${notchDepth}
+    Q ${Cx - 10} ${notchDepth + 3} ${Cx} ${notchDepth + 3}
+    Q ${Cx + 10} ${notchDepth + 3} ${Cx + 20} ${notchDepth}
+    Q ${Cx + 30} 12 ${Cx + notchWidth/2 - 15} 5
+    Q ${Cx + notchWidth/2 - 10} 0 ${Cx + notchWidth/2} 0
     L ${W - cornerRadius} 0
     Q ${W} 0 ${W} ${cornerRadius}
     L ${W} ${H}

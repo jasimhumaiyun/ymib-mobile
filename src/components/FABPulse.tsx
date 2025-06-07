@@ -1,7 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { Pressable, StyleSheet, Animated, Easing } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -10,48 +9,36 @@ interface FABPulseProps {
 }
 
 const FABPulse: React.FC<FABPulseProps> = ({ onPress }) => {
-  const insets = useSafeAreaInsets();
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    const createPulseAnimation = () => {
-      return Animated.loop(
+    const startPulseAnimation = () => {
+      Animated.loop(
         Animated.sequence([
           Animated.timing(pulseAnim, {
-            toValue: 1.05,
-            duration: 7500, // 15s total cycle (7.5s each way)
+            toValue: 1.08,
+            duration: 1000,
             easing: Easing.inOut(Easing.ease),
             useNativeDriver: true,
           }),
           Animated.timing(pulseAnim, {
             toValue: 1,
-            duration: 7500,
+            duration: 1000,
             easing: Easing.inOut(Easing.ease),
             useNativeDriver: true,
           }),
         ])
-      );
+      ).start();
     };
 
-    const animation = createPulseAnimation();
-    animation.start();
-
-    return () => animation.stop();
+    startPulseAnimation();
   }, [pulseAnim]);
-
-  // HOVER 6 dp above highest point of the notch
-  // bottom = barHeight + SafeArea.bottom - 6
-  const barHeight = 90;
-  const notchDepth = 10;
-  const hoverDistance = 6;
-  const bottomPosition = barHeight + insets.bottom - hoverDistance - notchDepth;
 
   return (
     <AnimatedPressable
       style={[
         styles.fab,
         {
-          bottom: bottomPosition,
           transform: [{ scale: pulseAnim }],
         },
       ]}
@@ -66,15 +53,15 @@ const FABPulse: React.FC<FABPulseProps> = ({ onPress }) => {
 const styles = StyleSheet.create({
   fab: {
     position: 'absolute',
+    bottom: 25, // Much lower, closer to the nav bar
     left: '50%',
-    marginLeft: -36, // Half of 72dp width
+    marginLeft: -36,
     width: 72,
     height: 72,
     borderRadius: 36,
-    backgroundColor: '#D4AF37', // Mustard gold
+    backgroundColor: '#D4AF37',
     alignItems: 'center',
     justifyContent: 'center',
-    // iOS + Android shadows
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.3,
