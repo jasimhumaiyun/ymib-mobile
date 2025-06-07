@@ -66,6 +66,8 @@ export function useBottles(isMapActive: boolean = true) {
             const eventType = event.event_type;
             const eventMessage = event.message || 'No message';
             
+            console.log(`🔍 Processing event for bottle ${bottle.id.slice(0, 8)}: type=${eventType}, message="${eventMessage.slice(0, 50)}..."`);
+            
             if (eventType === 'cast_away') {
               let actionType: 'created' | 'found' | 'retossed';
               
@@ -78,6 +80,7 @@ export function useBottles(isMapActive: boolean = true) {
                 actionType = 'retossed'; // Subsequent cast_away events are RETOSSED (blue)
               }
               
+              console.log(`🔍 Creating ${actionType} marker for bottle ${bottle.id.slice(0, 8)}`);
               markers.push({
                 id: `${bottle.id}-${event.id}`,
                 bottleId: bottle.id,
@@ -91,22 +94,20 @@ export function useBottles(isMapActive: boolean = true) {
                 event_id: event.id
               });
             } else if (eventType === 'found') {
-              // Skip reply messages (they're not location markers)
-              if (!eventMessage.startsWith('REPLY: ')) {
-                // EVERY found event creates a green marker, no matter what
-                markers.push({
-                  id: `${bottle.id}-${event.id}`,
-                  bottleId: bottle.id,
-                  actionType: 'found',
-                  status: bottle.status,
-                  lat: event.lat,
-                  lon: event.lon,
-                  message: eventMessage,
-                  photo_url: event.photo_url,
-                  created_at: event.created_at,
-                  event_id: event.id
-                });
-              }
+              // EVERY found event creates a green marker, including replies
+              console.log(`🔍 Creating found marker for bottle ${bottle.id.slice(0, 8)}`);
+              markers.push({
+                id: `${bottle.id}-${event.id}`,
+                bottleId: bottle.id,
+                actionType: 'found',
+                status: bottle.status,
+                lat: event.lat,
+                lon: event.lon,
+                message: eventMessage,
+                photo_url: event.photo_url,
+                created_at: event.created_at,
+                event_id: event.id
+              });
             }
           });
         } else {

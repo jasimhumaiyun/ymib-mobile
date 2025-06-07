@@ -44,24 +44,27 @@ export default function SmartBottleScanner({ onRouteToToss, onRouteToFound, onCa
     
     try {
       console.log('🔍 Checking bottle status for:', bottleData.id);
+      console.log('🔍 Using password:', bottleData.password);
       
       // Check if bottle exists in database
       const { data: bottle, error } = await supabase
         .from('bottles')
-        .select('id, status, password_hash')
+        .select('id, status, password_hash, message, created_at')
         .eq('id', bottleData.id)
         .maybeSingle();
 
       if (error) {
         console.error('❌ Database error:', error);
-        Alert.alert('Error', 'Failed to check bottle status. Please try again.');
+        Alert.alert('Database Error', `Failed to check bottle status: ${error.message}`);
         setIsChecking(false);
         return;
       }
 
-      // Case 1: Bottle doesn't exist - NEW BOTTLE → Toss Flow
+      console.log('🔍 Database result:', bottle);
+
+      // Case 1: Bottle doesn't exist - NEW BOTTLE → CREATE Flow
       if (!bottle) {
-        console.log('🆕 New bottle detected → Routing to Toss Flow');
+        console.log('🆕 New bottle detected → Routing to CREATE Flow');
         setIsChecking(false);
         onRouteToToss(bottleData);
         return;
@@ -76,18 +79,33 @@ export default function SmartBottleScanner({ onRouteToToss, onRouteToFound, onCa
 
       // Case 3: Bottle exists with correct password
       if (bottle.status === 'adrift') {
-        console.log('🔍 Found adrift bottle → Routing to Found Flow');
+        console.log('🔍 Found adrift bottle → Routing to FOUND Flow');
         setIsChecking(false);
-        onRouteToFound(bottleData);
+        try {
+          onRouteToFound(bottleData);
+        } catch (routeError) {
+          console.error('❌ Routing error to Found:', routeError);
+          Alert.alert('Navigation Error', 'Failed to navigate to found screen');
+        }
       } else if (bottle.status === 'found') {
-        console.log('✅ Found bottle (already found) → Routing to Found Flow');
+        console.log('🔄 Found bottle (already found) → Routing to RETOSS Flow');
         setIsChecking(false);
-        onRouteToFound(bottleData);
+        try {
+          onRouteToFound(bottleData); // Found flow handles retoss logic
+        } catch (routeError) {
+          console.error('❌ Routing error to Found (retoss):', routeError);
+          Alert.alert('Navigation Error', 'Failed to navigate to found screen');
+        }
       } else {
         // This shouldn't happen, but handle gracefully
         console.log('❓ Unknown bottle status:', bottle.status, '→ Routing to Found Flow');
         setIsChecking(false);
-        onRouteToFound(bottleData);
+        try {
+          onRouteToFound(bottleData);
+        } catch (routeError) {
+          console.error('❌ Routing error (unknown status):', routeError);
+          Alert.alert('Navigation Error', 'Failed to navigate to found screen');
+        }
       }
 
     } catch (error) {
@@ -142,22 +160,17 @@ export default function SmartBottleScanner({ onRouteToToss, onRouteToFound, onCa
     });
   };
 
-  const handleDevMode = (testBottleNumber: number) => {
-    if (isChecking) return; // Prevent multiple clicks
+  const handleDevMode = (bottleNumber: number) => {
+    // All dev bottles use the same ID but different passwords to simulate the same bottle through different states
+    const devBottles = {
+      1: { id: '550e8400-e29b-41d4-a716-446655440001', password: 'dev123' }, // Bottle 1 - cycles through states
+      2: { id: '550e8400-e29b-41d4-a716-446655440002', password: 'dev456' }, // Bottle 2 - cycles through states  
+      3: { id: '550e8400-e29b-41d4-a716-446655440003', password: 'dev789' }, // Bottle 3 - cycles through states
+    };
     
-    // Simple test bottle data for development - using UUID format
-    const testBottles = [
-      { id: '00000000-0000-0000-0000-000000000001', password: 'pass123' },
-      { id: '00000000-0000-0000-0000-000000000002', password: 'pass456' },
-      { id: '00000000-0000-0000-0000-000000000003', password: 'pass789' },
-    ];
-    
-    const testBottle = testBottles[testBottleNumber - 1];
-    console.log('🧪 Dev mode clicked:', testBottleNumber, testBottle);
-    if (testBottle) {
-      // Directly trigger the smart routing logic instead of just setting manual fields
-      console.log('🧪 Triggering checkBottleStatusAndRoute directly...');
-      checkBottleStatusAndRoute(testBottle);
+    const bottleData = devBottles[bottleNumber as keyof typeof devBottles];
+    if (bottleData) {
+      checkBottleStatusAndRoute(bottleData);
     }
   };
 
@@ -257,33 +270,36 @@ export default function SmartBottleScanner({ onRouteToToss, onRouteToFound, onCa
             </View>
             
             <View style={styles.devModeContainer}>
-              <Text style={styles.devModeTitle}>🧪 Dev Mode (Test Bottles)</Text>
+              <Text style={styles.devModeTitle}>🧪 Dev Mode - Test Bottle States</Text>
               <Text style={styles.devModeSubtitle}>
-                Test the smart routing: New bottles → Toss, Found bottles → Found
+                Test different bottle flows without QR codes
               </Text>
               <View style={styles.devButtonRow}>
                 <Pressable 
-                  style={[styles.devButton, isChecking && styles.disabledButton]} 
+                  style={[styles.devButton, styles.devButtonCreate, isChecking && styles.disabledButton]} 
                   onPress={() => handleDevMode(1)}
                   disabled={isChecking}
                 >
-                  <Text style={styles.devButtonText}>Test Bottle 1</Text>
+                  <Text style={styles.devButtonText}>🍾 Bottle 1</Text>
+                  <Text style={styles.devButtonSubtext}>Cycles through states</Text>
                 </Pressable>
                 
                 <Pressable 
-                  style={[styles.devButton, isChecking && styles.disabledButton]} 
+                  style={[styles.devButton, styles.devButtonFound, isChecking && styles.disabledButton]} 
                   onPress={() => handleDevMode(2)}
                   disabled={isChecking}
                 >
-                  <Text style={styles.devButtonText}>Test Bottle 2</Text>
+                  <Text style={styles.devButtonText}>🍾 Bottle 2</Text>
+                  <Text style={styles.devButtonSubtext}>Cycles through states</Text>
                 </Pressable>
                 
                 <Pressable 
-                  style={[styles.devButton, isChecking && styles.disabledButton]} 
+                  style={[styles.devButton, styles.devButtonRetoss, isChecking && styles.disabledButton]} 
                   onPress={() => handleDevMode(3)}
                   disabled={isChecking}
                 >
-                  <Text style={styles.devButtonText}>Test Bottle 3</Text>
+                  <Text style={styles.devButtonText}>🍾 Bottle 3</Text>
+                  <Text style={styles.devButtonSubtext}>Cycles through states</Text>
                 </Pressable>
               </View>
             </View>
@@ -317,7 +333,7 @@ export default function SmartBottleScanner({ onRouteToToss, onRouteToFound, onCa
             <View style={styles.smartDetectionBadge}>
               <Ionicons name="sparkles" size={16} color={Colors.accent.mustardSea} />
               <Text style={styles.smartText}>
-                Smart Detection: Auto-routes new & found bottles
+                Smart Detection: Auto-routes CREATE/FOUND/RETOSS flows
               </Text>
             </View>
           </View>
@@ -494,6 +510,20 @@ const styles = StyleSheet.create({
     color: Colors.text.primary,
     fontSize: 11,
     fontWeight: Typography.weights.bold,
+  },
+  devButtonCreate: {
+    backgroundColor: Colors.accent.seaweed,
+  },
+  devButtonFound: {
+    backgroundColor: Colors.primary[500],
+  },
+  devButtonRetoss: {
+    backgroundColor: Colors.secondary[500],
+  },
+  devButtonSubtext: {
+    color: Colors.text.inverse,
+    fontSize: Typography.sizes.xs,
+    opacity: 0.8,
   },
   cancelButton: {
     padding: 12,

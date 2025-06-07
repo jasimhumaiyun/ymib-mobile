@@ -9,7 +9,13 @@ export default function HowItWorksScreen() {
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
         <View style={styles.header}>
-          <Pressable style={styles.backButton} onPress={() => router.back()}>
+          <Pressable style={styles.backButton} onPress={() => {
+          if (router.canDismiss()) {
+            router.dismissAll();
+          } else {
+            router.replace('/(tabs)');
+          }
+        }}>
             <Text style={styles.backButtonText}>← Back</Text>
           </Pressable>
           <Text style={styles.title}>How It Works</Text>

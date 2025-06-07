@@ -63,7 +63,7 @@ serve(async (req) => {
     // Create found event
     await client.from("bottle_events").insert({
       bottle_id: id, 
-      type: "found", 
+      event_type: "found", 
       lat, 
       lon,
     });

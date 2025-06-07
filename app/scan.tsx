@@ -5,18 +5,12 @@ import SmartBottleScanner from '../src/components/SmartBottleScanner';
 
 export default function ScanScreen() {
   const handleRouteToToss = (bottleData: { id: string; password: string }) => {
-    console.log('🍾 New bottle detected:', bottleData);
-    // Since we removed the toss functionality, show an alert for new bottles
-    Alert.alert(
-      'New Bottle Detected',
-      'This appears to be a new bottle. The toss functionality is currently being redesigned.',
-      [
-        {
-          text: 'OK',
-          onPress: () => router.dismissAll()
-        }
-      ]
-    );
+    console.log('🍾 New bottle detected → Routing to Toss Flow:', bottleData);
+    // Navigate to toss screen with bottle data
+    router.push({
+      pathname: '/toss',
+      params: { bottleId: bottleData.id, bottlePassword: bottleData.password }
+    });
   };
 
   const handleRouteToFound = (bottleData: { id: string; password: string }) => {
@@ -29,7 +23,18 @@ export default function ScanScreen() {
   };
 
   const handleCancel = () => {
-    router.dismissAll();
+    try {
+      if (router.canDismiss()) {
+        router.dismissAll();
+      } else {
+        // Navigate to home tab instead of going back
+        router.replace('/(tabs)');
+      }
+    } catch (error) {
+      console.error('Navigation error:', error);
+      // Fallback: try to navigate to home
+      router.replace('/(tabs)');
+    }
   };
 
   return (

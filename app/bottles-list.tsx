@@ -26,7 +26,13 @@ export default function BottlesListScreen() {
         <View style={styles.header}>
           <Pressable 
             style={styles.backButton}
-            onPress={() => router.back()}
+            onPress={() => {
+              if (router.canDismiss()) {
+                router.dismissAll();
+              } else {
+                router.replace('/(tabs)');
+              }
+            }}
           >
             <Ionicons name="arrow-back" size={24} color={Colors.text.ocean} />
           </Pressable>
@@ -71,7 +77,13 @@ export default function BottlesListScreen() {
               
               <Pressable 
                 style={styles.backToProfileButton}
-                onPress={() => router.back()}
+                onPress={() => {
+                  if (router.canDismiss()) {
+                    router.dismissAll();
+                  } else {
+                    router.replace('/(tabs)');
+                  }
+                }}
               >
                 <Ionicons name="arrow-back" size={20} color={Colors.text.primary} />
                 <Text style={styles.backToProfileButtonText}>Back to Profile</Text>

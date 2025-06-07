@@ -343,17 +343,80 @@ bottle_events: id, bottle_id, event_type, message, photo_url, location, created_
 
 ---
 
+### **Milestone 10: Database Name Columns & Bug Fixes** ✅ **COMPLETE**
+**Objective**: Fix critical issues with name tracking, navigation, and event type display.
+
+**Issues Identified & Fixed**:
+
+#### **1. Database Schema Missing Name Columns** ✅ **FIXED**
+- **Problem**: App expected `creator_name`, `tosser_name`, `finder_name` columns but they didn't exist
+- **Solution**: Created and ran `add_name_columns.sql` migration
+- **Database Changes**:
+  ```sql
+  -- Added to bottles table
+  creator_name TEXT, tosser_name TEXT
+  
+  -- Added to bottle_events table  
+  tosser_name TEXT, finder_name TEXT
+  ```
+
+#### **2. AsyncStorage Name Field Clearing** ✅ **FIXED**
+- **Problem**: Name field kept clearing on every screen load
+- **Root Cause**: `checkUserProfile()` in toss screen was calling `AsyncStorage.removeItem('userName')`
+- **Solution**: Removed the clearing logic, now properly persists user names
+
+#### **3. Database Function Event Type Logic** ✅ **FIXED**
+- **Problem**: Found events with replies were being marked as "retoss" instead of "found"
+- **Root Cause**: Function logic treated any message as retoss
+- **Solution**: Updated logic to detect "REPLY:" prefix for found events
+- **New Logic**:
+  ```typescript
+  const isReply = message && message.startsWith("REPLY:");
+  const isReToss = message !== undefined && !isReply;
+  const eventType = isReToss ? "cast_away" : "found";
+  ```
+
+#### **4. Navigation "Go to Chat" Issue** ✅ **FIXED**
+- **Problem**: "Go to Chat" button was navigating to bottle journey instead of messages tab
+- **Root Cause**: Incorrect assumption that messages tab didn't exist
+- **Solution**: Restored proper navigation to `/(tabs)/messages`
+- **Current State**: Messages tab exists but shows placeholder "No active chats yet"
+
+#### **5. Database Function Parameter Handling** ✅ **FIXED**
+- **Problem**: Database function wasn't receiving/storing name parameters
+- **Solution**: Updated `claim_or_toss_bottle` function to:
+  - Accept `finderName` and `tosserName` parameters
+  - Store `creator_name` and `tosser_name` in bottles table
+  - Store `finder_name` and `tosser_name` in bottle_events table
+  - Handle both CREATE and FIND flows with proper name tracking
+
+**Technical Implementation**:
+- **Database Migration**: `add_name_columns.sql` with proper indexes
+- **Edge Function Updates**: Enhanced parameter handling and name storage
+- **App Logic Fixes**: Removed AsyncStorage clearing, fixed navigation
+- **Event Type Detection**: Smart detection of reply vs retoss actions
+
+**Current Status**:
+- ✅ Names properly persist across app sessions
+- ✅ Database stores creator, tosser, and finder names
+- ✅ Found events correctly show as "found" not "retossed"
+- ✅ "Go to Chat" navigates to messages tab
+- ✅ All database columns exist and are populated
+- ⚠️ Messages tab shows placeholder (needs chat functionality)
+
+---
+
 ## Next Development Phase
 
-### **Phase 2: Complete UI Transformation**
-**Objective**: Apply the new sea green theme across all screens and components.
+### **Phase 2: Chat System Implementation**
+**Objective**: Build actual chat functionality for the messages tab.
 
-**Planned Updates**:
-- Update all remaining screens (Profile, Explore, Toss, Found, Scanner)
-- Apply theme to bottle journey components
-- Update map markers with sea green styling
-- Enhance loading states and animations
-- Create consistent button and card components
+**Planned Features**:
+- List of active bottle conversations
+- Real-time chat interface for each bottle
+- Message history and threading
+- Integration with bottle journey system
+- Push notifications for new messages
 
 ### **Phase 3: User Authentication & Ownership**
 **Objective**: Real user accounts with bottle ownership tracking and personalized features.
@@ -364,9 +427,3 @@ bottle_events: id, bottle_id, event_type, message, photo_url, location, created_
 - Real user profile system replacing mock data
 - Push notifications for new finds
 - Live conversation updates
-
-#### **Phase 4: Advanced Features**
-- Advanced analytics and insights
-- Bottle journey predictions
-- AI-powered content moderation
-- Premium features and monetization

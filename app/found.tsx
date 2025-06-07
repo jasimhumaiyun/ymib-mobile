@@ -1,196 +1,138 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, Pressable, Image, Alert, ScrollView, Modal } from 'react-native';
-import { Stack, router, useLocalSearchParams } from 'expo-router';
+import React, { useState, useRef, useEffect } from 'react';
+import { View, Text, StyleSheet, TextInput, Pressable, Alert, Animated, ImageBackground, Image, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import * as ImagePicker from 'expo-image-picker';
+import { Stack, router, useLocalSearchParams } from 'expo-router';
 import * as Location from 'expo-location';
+import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../src/lib/supabase';
-import BottleJourney from '../src/components/BottleJourney';
+import { Colors, Typography, Spacing, BorderRadius, Shadows } from '../src/constants/theme';
+import { Ionicons } from '@expo/vector-icons';
 
-type FoundStep = 'loading' | 'viewing' | 'askReply' | 'replying' | 'askRetoss' | 'adding' | 'retossing' | 'success';
+type FoundStep = 'bottle-view' | 'message-view' | 'reply-compose' | 'found-options' | 'retossing' | 'success';
 
 interface BottleData {
   id: string;
-  password: string;
-}
-
-interface JourneyStep {
-  toss_number: number;
   message: string;
   photo_url?: string;
   created_at: string;
+  creator_name?: string;
+  tosser_name?: string;
 }
 
-interface BottleInfo {
-  id: string;
-  status: 'adrift' | 'found';
-  journey: JourneyStep[];
-  message: string;
-  photo_url?: string;
-  created_at: string;
-}
-
-export default function FoundModal() {
+export default function FoundScreen() {
   const params = useLocalSearchParams();
-  const [step, setStep] = useState<FoundStep>('loading');
+  const [step, setStep] = useState<FoundStep>('bottle-view');
   const [bottleData, setBottleData] = useState<BottleData | null>(null);
-  const [bottleInfo, setBottleInfo] = useState<BottleInfo | null>(null);
-  const [journey, setJourney] = useState<JourneyStep[]>([]);
   const [replyMessage, setReplyMessage] = useState('');
   const [replyPhoto, setReplyPhoto] = useState<string | null>(null);
-  const [newMessage, setNewMessage] = useState('');
-  const [newPhoto, setNewPhoto] = useState<string | null>(null);
+  const [finderName, setFinderName] = useState('');
+  const [showNameField, setShowNameField] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [showJourneyModal, setShowJourneyModal] = useState(false);
-  const [currentUserName, setCurrentUserName] = useState('Anonymous'); // For "Discovered by:" text
-  const [bottleSenderName, setBottleSenderName] = useState('Anonymous'); // For message sender
-  const [parentReplyId, setParentReplyId] = useState<string | undefined>(undefined); // For nested replies
+  const [bottleId, setBottleId] = useState<string>('');
+  const [bottlePassword, setBottlePassword] = useState<string>('');
 
-  // Load current user name for "Discovered by:" text
+  // Animation refs for retoss
+  const bottleAnimation = useRef(new Animated.Value(0)).current;
+  const bottleRotation = useRef(new Animated.Value(0)).current;
+  const bottleScale = useRef(new Animated.Value(1)).current;
+
   useEffect(() => {
-    loadCurrentUserName();
-  }, []);
+    if (params.bottleId && params.bottlePassword) {
+      setBottleId(params.bottleId as string);
+      setBottlePassword(params.bottlePassword as string);
+      fetchBottleData(params.bottleId as string);
+    }
+    
+    checkUserProfile();
+  }, [params]);
 
-  const loadCurrentUserName = async () => {
+  // Start bottle animation when retossing step begins
+  useEffect(() => {
+    if (step === 'retossing') {
+      startRetossAnimation();
+    }
+  }, [step]);
+
+  const checkUserProfile = async () => {
     try {
       const savedName = await AsyncStorage.getItem('userName');
       if (savedName && savedName.trim()) {
-        setCurrentUserName(savedName.trim());
+        setFinderName(savedName);
+        setShowNameField(false);
+      } else {
+        setShowNameField(true);
       }
     } catch (error) {
-      console.log('Error loading current user name:', error);
+      console.log('Error checking user profile:', error);
+      setShowNameField(true);
     }
   };
 
-  const fetchBottleInfo = async (bottleData: BottleData) => {
+  const fetchBottleData = async (id: string) => {
     try {
-      // First verify the bottle exists and password is correct
-      const { data: bottle, error: bottleError } = await supabase
+      const { data: bottle, error } = await supabase
         .from('bottles')
-        .select('id, status, message, photo_url, created_at')
-        .eq('id', bottleData.id)
-        .eq('password_hash', bottleData.password)
+        .select('id, message, photo_url, created_at, creator_name, tosser_name')
+        .eq('id', id)
         .single();
 
-      if (bottleError || !bottle) {
-        Alert.alert('Error', 'Invalid bottle ID or password');
-        router.back();
+      if (error) {
+        console.error('Error fetching bottle data:', error);
+        Alert.alert('Error', 'Failed to load bottle data');
+        handleClose(); // Use handleClose instead of router.back()
         return;
       }
 
-      // Fetch complete journey from bottle_events - GET ALL EVENTS to check if found
-      const { data: allEvents, error: allEventsError } = await supabase
-        .from('bottle_events')
-        .select('message, photo_url, created_at, event_type')
-        .eq('bottle_id', bottleData.id)
-        .order('created_at', { ascending: true });
-
-      console.log('📝 Fetched all events:', allEvents);
-
-      if (allEventsError) {
-        console.error('Events fetch error:', allEventsError);
-        Alert.alert('Error', 'Failed to fetch bottle journey');
-        router.back();
-        return;
-      }
-
-      // Check if bottle is already found by looking for found events
-      // BUT ONLY if the bottle status is still "found" - if it's "adrift" after retoss, it's findable again!
-      const hasFoundEvent = allEvents?.some(event => event.event_type === 'found') || false;
-      
-      // The key logic: Only go to retoss if bottle status is "found" AND there are found events
-      // If bottle status is "adrift", it means it was retossed and is now findable again
-      const shouldGoToRetoss = bottle.status === 'found' && hasFoundEvent;
-      
-      // Filter only cast_away events for journey display
-      const events = allEvents?.filter(event => event.event_type === 'cast_away') || [];
-
-      console.log('🗃️ Original bottle data:', bottle);
-      console.log('🔍 Has found event:', hasFoundEvent);
-      console.log('🔍 Bottle status:', bottle.status);
-      console.log('🔍 Should go to retoss:', shouldGoToRetoss);
-
-      // Build journey ONLY from cast_away events (chronological order)
-      const journey: JourneyStep[] = [];
-      
-      // Add all cast_away events in chronological order
-      events?.forEach((event, index) => {
-        console.log(`📸 Adding event ${index + 1}:`, { message: event.message, photo_url: event.photo_url });
-        journey.push({
-          toss_number: index + 1,
-          message: event.message,
-          photo_url: event.photo_url,
-          created_at: event.created_at
-        });
-      });
-
-      // If no events found, this means it's the original bottle that hasn't been re-tossed
-      // In this case, use the bottle data as the first toss
-      if (journey.length === 0) {
-        console.log('📸 Using original bottle data:', { message: bottle.message, photo_url: bottle.photo_url });
-        journey.push({
-          toss_number: 1,
-          message: bottle.message,
-          photo_url: bottle.photo_url,
-          created_at: bottle.created_at
-        });
-      }
-
-      setBottleInfo({
-        id: bottle.id,
-        status: bottle.status,
-        journey,
-        message: bottle.message,
-        photo_url: bottle.photo_url,
-        created_at: bottle.created_at
-      });
-
-      setJourney(journey);
-      
-      if (shouldGoToRetoss) {
-        // Bottle currently found and has found events - skip to ask retoss
-        console.log('🔍 Bottle currently found, going to ask retoss step');
-        setStep('askRetoss');
-      } else {
-        // Fresh bottle OR retossed bottle (now adrift again) - show viewing step with mark as found button
-        console.log('✅ Bottle is findable, showing viewing step');
-        setStep('viewing');
-      }
-      
+      setBottleData(bottle);
     } catch (error) {
-      console.error('❌ Error fetching bottle info:', error);
-      Alert.alert('Error', 'Failed to fetch bottle information');
-      router.back();
+      console.error('Error fetching bottle:', error);
+      Alert.alert('Error', 'Something went wrong');
+      handleClose(); // Use handleClose instead of router.back()
     }
   };
 
-  // Get bottle data from URL parameters and fetch bottle info
-  useEffect(() => {
-    if (params.bottleId && params.bottlePassword) {
-      const data = {
-        id: params.bottleId as string,
-        password: params.bottlePassword as string,
-      };
-      console.log('🔍 Found flow initialized with bottle data:', data);
-      setBottleData(data);
-      fetchBottleInfo(data);
-    } else {
-      // If no params, redirect back to scan
-      console.log('❌ No bottle data provided, redirecting to scan');
-      router.replace('/scan');
-    }
-  }, [params.bottleId, params.bottlePassword]);
+  const startRetossAnimation = () => {
+    bottleAnimation.setValue(0);
+    bottleRotation.setValue(0);
+    bottleScale.setValue(1);
 
-  useEffect(() => {
-    if (bottleData) {
-      // Check for parent_reply_id in params for nested replies
-      const parentId = params.parent_reply_id as string | undefined;
-      setParentReplyId(parentId);
-      
-      fetchBottleInfo(bottleData);
-    }
-  }, [bottleData]);
+    Animated.sequence([
+      Animated.parallel([
+        Animated.timing(bottleAnimation, {
+          toValue: 0.6,
+          duration: 3000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(bottleRotation, {
+          toValue: 4,
+          duration: 3000,
+          useNativeDriver: true,
+        }),
+      ]),
+      Animated.parallel([
+        Animated.timing(bottleAnimation, {
+          toValue: 1,
+          duration: 2000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(bottleRotation, {
+          toValue: 12,
+          duration: 2000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(bottleScale, {
+          toValue: 0,
+          duration: 2000,
+          useNativeDriver: true,
+        }),
+      ]),
+    ]).start(() => {
+      setTimeout(() => {
+        setStep('success');
+      }, 500);
+    });
+  };
 
   const pickImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -201,7 +143,7 @@ export default function FoundModal() {
     });
 
     if (!result.canceled) {
-      setNewPhoto(result.assets[0].uri);
+      setReplyPhoto(result.assets[0].uri);
     }
   };
 
@@ -220,52 +162,53 @@ export default function FoundModal() {
     });
 
     if (!result.canceled) {
-      setNewPhoto(result.assets[0].uri);
+      setReplyPhoto(result.assets[0].uri);
     }
   };
 
-  const uploadPhoto = async (uri: string): Promise<string | null> => {
+  const uploadPhoto = async (photoUri: string): Promise<string | null> => {
     try {
-      console.log('📸 Uploading photo:', uri);
+      const response = await fetch(photoUri);
+      const blob = await response.blob();
       
-      // Read the file as array buffer for proper upload
-      const response = await fetch(uri);
-      const arrayBuffer = await response.arrayBuffer();
-      
-      console.log('📸 File size:', arrayBuffer.byteLength, 'bytes');
-      
-      const fileName = `bottle-${Date.now()}.jpg`;
-      
+      const fileExt = photoUri.split('.').pop();
+      const fileName = `${Date.now()}.${fileExt}`;
+      const filePath = `bottle-photos/${fileName}`;
+
       const { data, error } = await supabase.storage
         .from('bottles')
-        .upload(fileName, arrayBuffer, {
-          contentType: 'image/jpeg',
-          upsert: false
-        });
+        .upload(filePath, blob);
 
       if (error) {
-        console.error('❌ Storage upload error:', error);
-        throw error;
+        console.error('Upload error:', error);
+        return null;
       }
-      
+
       const { data: { publicUrl } } = supabase.storage
         .from('bottles')
-        .getPublicUrl(fileName);
-      
-      console.log('✅ Photo uploaded successfully:', publicUrl);
+        .getPublicUrl(filePath);
+
       return publicUrl;
     } catch (error) {
-      console.error('❌ Upload error:', error);
+      console.error('Photo upload failed:', error);
       return null;
     }
   };
 
   const handleMarkAsFound = async () => {
-    if (!bottleData || !bottleInfo) return;
-    
+    if (!replyMessage.trim()) {
+      Alert.alert('Reply Required', 'Please enter a reply message');
+      return;
+    }
+
     setLoading(true);
-    
+
     try {
+      // Save finder name if provided
+      if (showNameField && finderName.trim()) {
+        await AsyncStorage.setItem('userName', finderName.trim());
+      }
+
       // Get location
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
@@ -274,50 +217,6 @@ export default function FoundModal() {
         return;
       }
 
-      const { coords } = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
-
-      // Create a FOUND event by adding an event to bottle_events table
-      const { error } = await supabase
-        .from('bottle_events')
-        .insert([
-          {
-            bottle_id: bottleData.id,
-            event_type: 'found',
-            lat: coords.latitude,
-            lon: coords.longitude,
-            message: 'Bottle found', // System message - will be filtered out in journey display
-            created_at: new Date().toISOString()
-          }
-        ]);
-
-      if (error) {
-        console.error('❌ Error marking bottle as found:', error);
-        Alert.alert('Error', 'Failed to mark bottle as found');
-        return;
-      }
-
-      console.log('✅ Bottle marked as found - FOUND event created');
-      
-      // Move directly to replying step (skip askReply)
-      setStep('replying');
-      
-    } catch (error) {
-      console.error('❌ Error in handleMarkAsFound:', error);
-      Alert.alert('Error', 'Something went wrong. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSubmitReply = async () => {
-    if (!bottleData || !replyMessage.trim()) return;
-    
-    setLoading(true);
-    
-    try {
-      // Get location for the reply
       const { coords } = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
       });
@@ -326,63 +225,53 @@ export default function FoundModal() {
       let photoUrl = null;
       if (replyPhoto) {
         photoUrl = await uploadPhoto(replyPhoto);
-        if (!photoUrl) {
-          Alert.alert('Error', 'Failed to upload photo');
-          setLoading(false);
-          return;
-        }
       }
 
-      // Create a FOUND event with special reply message format
-      const replyEventMessage = `REPLY: ${replyMessage}`;
+      // Call edge function to mark as found with reply
+      const requestBody = {
+        id: bottleId,
+        password: bottlePassword,
+        message: `REPLY: ${replyMessage.trim()}`,
+        photoUrl,
+        finderName: finderName.trim() || 'Anonymous',
+        lat: coords.latitude,
+        lon: coords.longitude,
+        action: 'found'
+      };
       
-      const { error } = await supabase
-        .from('bottle_events')
-        .insert([
-          {
-            bottle_id: bottleData.id,
-            event_type: 'found',
-            lat: coords.latitude,
-            lon: coords.longitude,
-            message: replyEventMessage,
-            photo_url: photoUrl,
-            parent_reply_id: parentReplyId, // Include parent_reply_id for nested replies
-            created_at: new Date().toISOString()
-          }
-        ]);
+      console.log('🔥 FRONTEND SENDING TO DATABASE:', requestBody);
+      
+      const { data, error } = await supabase.functions.invoke('claim_or_toss_bottle', {
+        body: requestBody,
+      });
 
       if (error) {
-        console.error('❌ Error submitting reply:', error);
-        Alert.alert('Error', 'Failed to submit reply');
+        Alert.alert('Error', error.message || 'Failed to mark bottle as found');
+        setLoading(false);
         return;
       }
 
-      console.log('✅ Reply submitted successfully');
-      
-      // Move to ask retoss step
-      setStep('askRetoss');
-      
+      setStep('found-options');
     } catch (error) {
-      console.error('❌ Error in handleSubmitReply:', error);
+      console.error('Error marking as found:', error);
       Alert.alert('Error', 'Something went wrong. Please try again.');
+      setLoading(false);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleReToss = async () => {
-    if (!bottleData) return;
-    
+  const handleRetossNow = async () => {
     setLoading(true);
     setStep('retossing');
-    
+
     try {
       // Get location
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
         Alert.alert('Permission Required', 'Location permission is needed');
         setLoading(false);
-        setStep('adding');
+        setStep('found-options');
         return;
       }
 
@@ -390,331 +279,229 @@ export default function FoundModal() {
         accuracy: Location.Accuracy.Balanced,
       });
 
-      // Upload photo if provided
-      let photoUrl = null;
-      if (newPhoto) {
-        photoUrl = await uploadPhoto(newPhoto);
-      }
-
-      // Call edge function with new message/photo
+      // Call edge function to retoss
+      const requestBody = {
+        id: bottleId,
+        password: bottlePassword,
+        message: 'Continuing the journey...',
+        tosserName: finderName.trim() || 'Anonymous',
+        lat: coords.latitude,
+        lon: coords.longitude,
+        action: 'retoss'
+      };
+      
+      console.log('🔥 FRONTEND SENDING RETOSS TO DATABASE:', requestBody);
+      
       const { data, error } = await supabase.functions.invoke('claim_or_toss_bottle', {
-        body: {
-          ...bottleData,
-          message: newMessage || 'Continuing the journey...',
-          photoUrl,
-          lat: coords.latitude,
-          lon: coords.longitude,
-        },
+        body: requestBody,
       });
 
       if (error) {
-        Alert.alert('Error', error.message || 'Failed to re-toss bottle');
-        setStep('adding');
+        Alert.alert('Error', error.message || 'Failed to retoss bottle');
+        setStep('found-options');
         return;
       }
 
-      setStep('success');
+      // Animation will automatically transition to success
     } catch (error) {
+      console.error('Error retossing bottle:', error);
       Alert.alert('Error', 'Something went wrong. Please try again.');
-      setStep('adding');
+      setStep('found-options');
     } finally {
       setLoading(false);
     }
   };
 
+  const handleGoToChat = () => {
+    // Navigate to messages tab
+    try {
+      if (router.canDismiss()) {
+        router.dismissAll();
+      } else {
+        // Navigate to messages tab
+        router.replace('/(tabs)/messages');
+      }
+    } catch (error) {
+      console.error('Navigation error:', error);
+      // Fallback: try to navigate to messages tab
+      router.replace('/(tabs)/messages');
+    }
+  };
+
   const handleClose = () => {
-    router.dismissAll();
+    try {
+      if (router.canDismiss()) {
+        router.dismissAll();
+      } else {
+        // Navigate to home tab instead of going back
+        router.replace('/(tabs)');
+      }
+    } catch (error) {
+      console.error('Navigation error:', error);
+      // Fallback: try to navigate to home
+      router.replace('/(tabs)');
+    }
   };
 
   const renderContent = () => {
-    switch (step) {
-      case 'loading':
-        return (
-          <SafeAreaView style={styles.container}>
-            <View style={styles.loadingContainer}>
-              <Text style={styles.loadingTitle}>🔍 Finding bottle...</Text>
-              <Text style={styles.loadingText}>
-                Loading bottle information and journey history
-              </Text>
-            </View>
-          </SafeAreaView>
-        );
+    if (!bottleData) {
+      return (
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Loading bottle...</Text>
+        </View>
+      );
+    }
 
-      case 'viewing':
+    switch (step) {
+      case 'bottle-view':
         return (
           <SafeAreaView style={styles.container}>
-            {/* Universal Back to Home Button */}
             <View style={styles.topBar}>
               <Pressable style={styles.backButton} onPress={handleClose}>
                 <Text style={styles.backButtonText}>← Home</Text>
               </Pressable>
             </View>
 
-            <ScrollView style={styles.contentContainer}>
+            <View style={styles.bottleViewContainer}>
               <Text style={styles.title}>Bottle Found!</Text>
               <Text style={styles.subtitle}>
-                Discovered by: {currentUserName} • Continue its journey!
+                You've discovered a message in a bottle
               </Text>
 
-              {bottleInfo && (
-                <View style={styles.bottleCard}>
-                  <Text style={styles.cardTitle}>{bottleSenderName}'s Message</Text>
-                  <View style={styles.cardContent}>
-                    <View style={styles.messageSection}>
-                      <Text style={styles.cardMessage}>"{bottleInfo.message}"</Text>
-                    </View>
-                    {bottleInfo.photo_url && (
-                      <View style={styles.imageSection}>
-                        <Image source={{ uri: bottleInfo.photo_url }} style={styles.cardImage} />
-                      </View>
-                    )}
-                  </View>
-                  <Text style={styles.cardDate}>
-                    Created: {new Date(bottleInfo.created_at).toLocaleDateString()}
+              <View style={styles.bottleImageContainer}>
+                <Image 
+                  source={require('../images/homepage_bottle.png')} 
+                  style={styles.bottleImage}
+                />
+                <Text style={styles.bottleHint}>
+                  Click the bottle to open your digital message
+                </Text>
+              </View>
+
+              <Pressable 
+                style={styles.openBottleButton}
+                onPress={() => setStep('message-view')}
+              >
+                <Text style={styles.openBottleText}>🍾 Open Bottle</Text>
+              </Pressable>
+            </View>
+          </SafeAreaView>
+        );
+
+      case 'message-view':
+        return (
+          <SafeAreaView style={styles.container}>
+            <View style={styles.topBar}>
+              <Pressable style={styles.backButton} onPress={() => setStep('bottle-view')}>
+                <Text style={styles.backButtonText}>← Back</Text>
+              </Pressable>
+            </View>
+
+            <ScrollView style={styles.messageContainer} showsVerticalScrollIndicator={false}>
+              <Text style={styles.messageTitle}>Original Message</Text>
+              
+              <View style={styles.originalMessage}>
+                <View style={styles.messageHeader}>
+                  <Text style={styles.creatorName}>
+                    From: {bottleData.creator_name || bottleData.tosser_name || 'Anonymous'}
+                  </Text>
+                  <Text style={styles.messageDate}>
+                    {new Date(bottleData.created_at).toLocaleDateString()}
                   </Text>
                 </View>
+
+                <Text style={styles.messageText}>{bottleData.message}</Text>
+
+                {bottleData.photo_url && (
+                  <Image 
+                    source={{ uri: bottleData.photo_url }} 
+                    style={styles.messagePhoto}
+                  />
+                )}
+              </View>
+
+              <Pressable 
+                style={styles.replyButton}
+                onPress={() => setStep('reply-compose')}
+              >
+                <Text style={styles.replyButtonText}>💬 Write Your Reply</Text>
+              </Pressable>
+            </ScrollView>
+          </SafeAreaView>
+        );
+
+      case 'reply-compose':
+        return (
+          <SafeAreaView style={styles.container}>
+            <View style={styles.topBar}>
+              <Pressable style={styles.backButton} onPress={() => setStep('message-view')}>
+                <Text style={styles.backButtonText}>← Back</Text>
+              </Pressable>
+            </View>
+
+            <ScrollView style={styles.replyContainer} showsVerticalScrollIndicator={false}>
+              <Text style={styles.replyTitle}>Your Reply</Text>
+
+              {/* Name Field - Only show if user doesn't have profile */}
+              {showNameField && (
+                <>
+                  <Text style={styles.sectionTitle}>Your Name (Optional)</Text>
+                  <TextInput
+                    style={styles.nameInput}
+                    placeholder="Enter your name or leave blank for Anonymous"
+                    placeholderTextColor="rgba(255, 255, 255, 0.6)"
+                    value={finderName}
+                    onChangeText={setFinderName}
+                    maxLength={50}
+                  />
+                  <Text style={styles.fieldNote}>
+                    This will be shown as the finder of this bottle
+                  </Text>
+                </>
               )}
 
-              {journey.length > 0 && (
-                <View style={styles.journeySection}>
+              {/* Show current name and option to change it */}
+              {!showNameField && (
+                <View style={styles.currentNameContainer}>
+                  <Text style={styles.currentNameText}>
+                    Replying as: {finderName || 'Anonymous'}
+                  </Text>
                   <Pressable 
-                    style={styles.journeyButton}
-                    onPress={() => setShowJourneyModal(true)}
+                    style={styles.changeNameButton}
+                    onPress={async () => {
+                      await AsyncStorage.removeItem('userName');
+                      setFinderName('');
+                      setShowNameField(true);
+                    }}
                   >
-                    <Text style={styles.journeyButtonText}>🍾 View Bottle Journey</Text>
-                    <Text style={styles.journeyButtonSubtext}>
-                      See all {journey.length} message{journey.length !== 1 ? 's' : ''} in this bottle's story
-                    </Text>
+                    <Text style={styles.changeNameText}>Change Name</Text>
                   </Pressable>
                 </View>
               )}
 
-              <View style={styles.centeredButtonContainer}>
-                <Pressable 
-                  style={[styles.button, styles.foundButton, styles.compactButton]} 
-                  onPress={handleMarkAsFound}
-                  disabled={loading}
-                >
-                  <Text style={styles.foundButtonText}>
-                    Mark as Found & Reply
-                  </Text>
-                </Pressable>
-              </View>
-            </ScrollView>
-          </SafeAreaView>
-        );
-
-      case 'askReply':
-        // This step is now skipped - we go directly from 'viewing' to 'replying'
-        return null;
-
-      case 'replying':
-        return (
-          <SafeAreaView style={styles.container}>
-            {/* Universal Back to Home Button */}
-            <View style={styles.topBar}>
-              <Pressable style={styles.backButton} onPress={handleClose}>
-                <Text style={styles.backButtonText}>← Home</Text>
-              </Pressable>
-            </View>
-
-            <ScrollView style={styles.contentContainer}>
-              <Text style={styles.title}>Reply to Sender</Text>
-              <Text style={styles.subtitle}>
-                What would you like to say about this message?
-              </Text>
-
-              {/* Unified Conversation Container */}
-              {bottleInfo && (
-                <View style={styles.conversationContainer}>
-                  {/* Original Message */}
-                  <View style={styles.originalMessage}>
-                    <Text style={styles.senderLabel}>Anonymous said</Text>
-                    <View style={styles.messageContent}>
-                      <View style={styles.messageSection}>
-                        <Text style={styles.cardMessage}>"{bottleInfo.message}"</Text>
-                      </View>
-                      {bottleInfo.photo_url && (
-                        <View style={styles.imageSection}>
-                          <Image source={{ uri: bottleInfo.photo_url }} style={styles.cardImage} />
-                        </View>
-                      )}
-                    </View>
-                    <Text style={styles.cardDate}>
-                      {new Date(bottleInfo.created_at).toLocaleDateString()}
-                    </Text>
-
-                    {/* Nested Reply Section */}
-                    <View style={styles.nestedReply}>
-                      <Text style={styles.replySenderLabel}>You said</Text>
-                      <TextInput
-                        style={styles.nestedReplyInput}
-                        placeholder="Enter your reply..."
-                        placeholderTextColor="rgba(255, 255, 255, 0.6)"
-                        value={replyMessage}
-                        onChangeText={setReplyMessage}
-                        multiline
-                        maxLength={300}
-                        textAlignVertical="top"
-                      />
-                      
-                      {/* Reply Photo Section */}
-                      {replyPhoto ? (
-                        <View style={styles.replyPhotoContainer}>
-                          <Image source={{ uri: replyPhoto }} style={styles.replyPhoto} />
-                          <Pressable 
-                            style={styles.removeReplyPhotoButton} 
-                            onPress={() => setReplyPhoto(null)}
-                          >
-                            <Text style={styles.removeReplyPhotoText}>Remove Photo</Text>
-                          </Pressable>
-                        </View>
-                      ) : (
-                        <View style={styles.replyPhotoButtons}>
-                          <Pressable style={styles.replyPhotoButton} onPress={async () => {
-                            const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
-                            if (!permissionResult.granted) {
-                              Alert.alert('Permission Required', 'Camera permission is needed to take photos');
-                              return;
-                            }
-                            const result = await ImagePicker.launchCameraAsync({
-                              allowsEditing: true,
-                              aspect: [1, 1],
-                              quality: 0.8,
-                            });
-                            if (!result.canceled) {
-                              setReplyPhoto(result.assets[0].uri);
-                            }
-                          }}>
-                            <Text style={styles.replyPhotoButtonText}>📸 Take Photo</Text>
-                          </Pressable>
-                          <Pressable style={styles.replyPhotoButton} onPress={async () => {
-                            const result = await ImagePicker.launchImageLibraryAsync({
-                              mediaTypes: ImagePicker.MediaTypeOptions.Images,
-                              allowsEditing: true,
-                              aspect: [1, 1],
-                              quality: 0.8,
-                            });
-                            if (!result.canceled) {
-                              setReplyPhoto(result.assets[0].uri);
-                            }
-                          }}>
-                            <Text style={styles.replyPhotoButtonText}>🖼️ Gallery</Text>
-                          </Pressable>
-                        </View>
-                      )}
-                    </View>
-                  </View>
-                </View>
-              )}
-
-              {/* Action Buttons - Properly Positioned */}
-              <View style={styles.replyActionButtons}>
-                <Pressable 
-                  style={[styles.button, styles.secondaryButton, styles.replyButton]} 
-                  onPress={() => setStep('askRetoss')}
-                >
-                  <Text style={[styles.buttonText, styles.secondaryButtonText]}>
-                    Skip Reply
-                  </Text>
-                </Pressable>
-                
-                <Pressable 
-                  style={[styles.button, styles.primaryButton, styles.replyButton]} 
-                  onPress={handleSubmitReply}
-                  disabled={loading || !replyMessage.trim()}
-                >
-                  <Text style={styles.buttonText}>
-                    Submit Reply & Continue
-                  </Text>
-                </Pressable>
-              </View>
-            </ScrollView>
-          </SafeAreaView>
-        );
-
-      case 'askRetoss':
-        return (
-          <SafeAreaView style={styles.container}>
-            {/* Universal Back to Home Button */}
-            <View style={styles.topBar}>
-              <Pressable style={styles.backButton} onPress={handleClose}>
-                <Text style={styles.backButtonText}>← Home</Text>
-              </Pressable>
-            </View>
-
-            <View style={styles.promptContainer}>
-              <Text style={styles.promptTitle}>🔄 Retoss Bottle?</Text>
-              <Text style={styles.promptText}>
-                Would you like to retoss this bottle now or save it for later?
-              </Text>
-
-              <View style={styles.promptButtons}>
-                <Pressable 
-                  style={[styles.button, styles.secondaryButton]} 
-                  onPress={() => {
-                    // Save for later - just close the modal
-                    // User can retoss from profile later
-                    Alert.alert(
-                      'Saved!', 
-                      'This bottle has been saved to your profile. You can retoss it anytime from the Found tab.',
-                      [{ text: 'OK', onPress: () => router.dismissAll() }]
-                    );
-                  }}
-                >
-                  <Text style={[styles.buttonText, styles.secondaryButtonText]}>
-                    Save for Later
-                  </Text>
-                </Pressable>
-                
-                <Pressable 
-                  style={[styles.button, styles.primaryButton]} 
-                  onPress={() => setStep('adding')}
-                >
-                  <Text style={styles.buttonText}>
-                    Retoss Now
-                  </Text>
-                </Pressable>
-              </View>
-            </View>
-          </SafeAreaView>
-        );
-
-      case 'adding':
-        return (
-          <SafeAreaView style={styles.container}>
-            {/* Universal Back to Home Button */}
-            <View style={styles.topBar}>
-              <Pressable style={styles.backButton} onPress={handleClose}>
-                <Text style={styles.backButtonText}>← Home</Text>
-              </Pressable>
-            </View>
-
-            <ScrollView style={styles.contentContainer}>
-              <Text style={styles.title}>Add Your Message</Text>
-              <Text style={styles.subtitle}>
-                Continue this bottle's journey with your story!
-              </Text>
-
+              <Text style={styles.sectionTitle}>Your Reply Message</Text>
               <TextInput
-                style={styles.messageInput}
-                placeholder="Add your message to this bottle's journey..."
+                style={styles.replyInput}
+                placeholder="What would you like to say to the bottle creator?"
                 placeholderTextColor="rgba(255, 255, 255, 0.6)"
-                value={newMessage}
-                onChangeText={setNewMessage}
+                value={replyMessage}
+                onChangeText={setReplyMessage}
                 multiline
                 maxLength={500}
                 textAlignVertical="top"
               />
+              <Text style={styles.characterCount}>
+                {replyMessage.length}/500 characters
+              </Text>
 
               <Text style={styles.sectionTitle}>Add a Photo (Optional)</Text>
               
-              {newPhoto ? (
+              {replyPhoto ? (
                 <View style={styles.photoContainer}>
-                  <Image source={{ uri: newPhoto }} style={styles.photo} />
+                  <Image source={{ uri: replyPhoto }} style={styles.photo} />
                   <Pressable 
                     style={styles.changePhotoButton} 
-                    onPress={() => setNewPhoto(null)}
+                    onPress={() => setReplyPhoto(null)}
                   >
                     <Text style={styles.changePhotoText}>Remove Photo</Text>
                   </Pressable>
@@ -722,37 +509,100 @@ export default function FoundModal() {
               ) : (
                 <View style={styles.photoButtons}>
                   <Pressable style={styles.photoButton} onPress={takePhoto}>
-                    <Text style={styles.photoButtonText}>📸 Take Photo</Text>
+                    <Ionicons name="camera" size={20} color={Colors.text.primary} />
+                    <Text style={styles.photoButtonText}>Take Photo</Text>
                   </Pressable>
                   <Pressable style={styles.photoButton} onPress={pickImage}>
-                    <Text style={styles.photoButtonText}>🖼️ Choose from Gallery</Text>
+                    <Ionicons name="image" size={20} color={Colors.text.primary} />
+                    <Text style={styles.photoButtonText}>Choose from Gallery</Text>
                   </Pressable>
                 </View>
               )}
 
-              <View style={styles.centeredButtonContainer}>
+              <Pressable 
+                style={[styles.markFoundButton, (!replyMessage.trim() || loading) && styles.disabledButton]}
+                onPress={handleMarkAsFound}
+                disabled={!replyMessage.trim() || loading}
+              >
+                <Text style={styles.markFoundText}>
+                  {loading ? 'Marking as Found...' : '✅ Mark as Found'}
+                </Text>
+              </Pressable>
+            </ScrollView>
+          </SafeAreaView>
+        );
+
+      case 'found-options':
+        return (
+          <SafeAreaView style={styles.container}>
+            <View style={styles.optionsContainer}>
+              <Text style={styles.optionsTitle}>Bottle Marked as Found!</Text>
+              <Text style={styles.optionsSubtitle}>
+                Your reply has been added to this bottle's journey. What would you like to do next?
+              </Text>
+
+              <View style={styles.optionButtons}>
                 <Pressable 
-                  style={[styles.button, styles.primaryButton, styles.compactButton]} 
-                  onPress={handleReToss}
-                  disabled={loading || !newMessage.trim()}
+                  style={styles.chatButton}
+                  onPress={handleGoToChat}
                 >
-                  <Text style={styles.buttonText}>
-                    Retoss Bottle!
-                  </Text>
+                  <Ionicons name="chatbubbles" size={24} color={Colors.text.primary} />
+                  <Text style={styles.chatButtonText}>Go to Bottle Chat</Text>
+                  <Text style={styles.chatButtonSubtext}>Continue the conversation</Text>
+                </Pressable>
+
+                <Pressable 
+                  style={styles.retossButton}
+                  onPress={handleRetossNow}
+                >
+                  <Ionicons name="refresh" size={24} color={Colors.text.inverse} />
+                  <Text style={styles.retossButtonText}>Retoss Bottle Now</Text>
+                  <Text style={styles.retossButtonSubtext}>Send it back to the ocean</Text>
                 </Pressable>
               </View>
-            </ScrollView>
+
+              <Pressable 
+                style={styles.laterButton}
+                onPress={handleClose}
+              >
+                <Text style={styles.laterButtonText}>I'll decide later</Text>
+              </Pressable>
+            </View>
           </SafeAreaView>
         );
 
       case 'retossing':
         return (
           <SafeAreaView style={styles.container}>
-            <View style={styles.loadingContainer}>
-              <Text style={styles.loadingTitle}>Retossing bottle...</Text>
-              <Text style={styles.loadingText}>
-                Adding your message and sending it back into the world 🌊
+            <View style={styles.animationContainer}>
+              <Text style={styles.animationTitle}>Retossing bottle...</Text>
+              <Text style={styles.animationSubtitle}>
+                Sending it back to the digital ocean 🌊
               </Text>
+              
+              <Animated.Image
+                source={require('../images/homepage_bottle.png')}
+                style={[
+                  styles.animatedBottle,
+                  {
+                    transform: [
+                      {
+                        translateY: bottleAnimation.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [300, -400],
+                        }),
+                      },
+                      {
+                        rotate: bottleRotation.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: ['0deg', '1440deg'],
+                        }),
+                      },
+                      { scale: bottleScale },
+                    ],
+                  },
+                ]}
+              />
             </View>
           </SafeAreaView>
         );
@@ -762,13 +612,23 @@ export default function FoundModal() {
           <SafeAreaView style={styles.container}>
             <View style={styles.successContainer}>
               <Text style={styles.successIcon}>🌊</Text>
-              <Text style={styles.successTitle}>Bottle Retossed!</Text>
+              <Text style={styles.successTitle}>Journey Continues!</Text>
               <Text style={styles.successText}>
-                Your message has been added to this bottle's journey.
-                Others can now discover your contribution to the story!
+                The bottle has been retossed and is now drifting toward new adventures, carrying your reply along with the original message.
               </Text>
-              <Pressable style={[styles.button, styles.primaryButton, { width: 180, alignSelf: 'center' }]} onPress={handleClose}>
-                <Text style={styles.buttonText}>Continue Exploring</Text>
+              
+              <View style={styles.successDetails}>
+                <Text style={styles.successDetailTitle}>Bottle #{bottleId.slice(0, 8)}...</Text>
+                <Text style={styles.successDetailText}>
+                  Status: Adrift with your reply
+                </Text>
+              </View>
+
+              <Pressable 
+                style={styles.continueButton} 
+                onPress={handleClose}
+              >
+                <Text style={styles.continueButtonText}>Continue Exploring</Text>
               </Pressable>
             </View>
           </SafeAreaView>
@@ -780,468 +640,447 @@ export default function FoundModal() {
   };
 
   return (
-    <View style={styles.fullScreen}>
+    <ImageBackground 
+      source={require('../images/homepage_BG_new.png')} 
+      style={styles.fullScreen}
+      resizeMode="cover"
+    >
       <Stack.Screen options={{ 
         presentation: 'modal',
         headerShown: false 
       }} />
-      {loading && step === 'loading' && (
-        <View style={styles.scanLoadingOverlay}>
-          <Text style={styles.scanLoadingText}>Loading bottle...</Text>
-        </View>
-      )}
       {renderContent()}
-      
-      {/* Journey Modal */}
-      <Modal
-        visible={showJourneyModal}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setShowJourneyModal(false)}
-      >
-        <SafeAreaView style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <Pressable style={styles.backButton} onPress={() => setShowJourneyModal(false)}>
-              <Text style={styles.backButtonText}>← Home</Text>
-            </Pressable>
-          </View>
-          <ScrollView style={styles.modalContent}>
-            <BottleJourney journey={journey} />
-          </ScrollView>
-        </SafeAreaView>
-      </Modal>
-    </View>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
+  fullScreen: {
+    flex: 1,
+  },
   container: {
     flex: 1,
-    backgroundColor: '#014348', // Ocean theme background
   },
-  contentContainer: {
-    flex: 1,
-    padding: 20,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#D4AF37', // Mustard yellow
-    textAlign: 'center',
-    marginBottom: 8,
-    textShadowColor: 'rgba(0,0,0,0.3)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 4,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: 'rgba(255, 255, 255, 0.8)',
-    textAlign: 'center',
-    marginBottom: 30,
-    lineHeight: 22,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#D4AF37', // Mustard yellow
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  messageInput: {
-    borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-    borderRadius: 15,
-    padding: 16,
-    fontSize: 16,
-    height: 120,
-    marginBottom: 30,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    color: '#fff',
-    textAlignVertical: 'top',
-  },
-  photoContainer: {
-    alignItems: 'center',
-    marginBottom: 30,
-  },
-  photo: {
-    width: 200,
-    height: 200,
-    borderRadius: 15,
-    marginBottom: 12,
-    borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-  },
-  changePhotoButton: {
-    padding: 8,
-  },
-  changePhotoText: {
-    color: '#D4AF37',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  photoButtons: {
+  topBar: {
     flexDirection: 'row',
-    gap: 12,
-    marginBottom: 30,
-  },
-  photoButton: {
-    flex: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    padding: 16,
-    borderRadius: 15,
+    justifyContent: 'space-between',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
   },
-  photoButtonText: {
-    fontSize: 15,
-    color: '#fff',
-    fontWeight: '600',
+  backButton: {
+    padding: Spacing.sm,
   },
-  actionButtons: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 20,
-    marginBottom: 40,
-  },
-  button: {
-    padding: 16,
-    borderRadius: 25,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
-    shadowRadius: 5,
-    elevation: 4,
-  },
-  primaryButton: {
-    backgroundColor: '#D4AF37', // Mustard yellow
-  },
-  foundButton: {
-    backgroundColor: '#D4AF37', // Mustard yellow
-    padding: 16,
-    borderRadius: 25,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
-    shadowRadius: 5,
-    elevation: 4,
-  },
-  foundButtonSecondary: {
-    backgroundColor: '#D4AF37',
-  },
-  foundButtonText: {
-    color: '#014348', // Dark text for contrast
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  secondaryButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-  },
-  buttonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#014348', // Dark text for primary buttons
-  },
-  secondaryButtonText: {
-    color: '#fff', // White text for secondary buttons
+  backButtonText: {
+    fontSize: Typography.sizes.md,
+    color: Colors.text.inverse,
+    fontWeight: Typography.weights.semibold,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
-    backgroundColor: '#014348',
-  },
-  loadingTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#D4AF37',
-    textAlign: 'center',
-    marginBottom: 8,
   },
   loadingText: {
-    fontSize: 16,
-    color: 'rgba(255, 255, 255, 0.8)',
+    fontSize: Typography.sizes.lg,
+    color: Colors.text.inverse,
+  },
+  bottleViewContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.lg,
+  },
+  title: {
+    fontSize: Typography.sizes['3xl'],
+    fontWeight: Typography.weights.bold,
+    color: Colors.text.ocean,
     textAlign: 'center',
-    lineHeight: 22,
+    marginBottom: Spacing.sm,
+  },
+  subtitle: {
+    fontSize: Typography.sizes.md,
+    color: Colors.text.secondary,
+    textAlign: 'center',
+    marginBottom: Spacing['2xl'],
+  },
+  bottleImageContainer: {
+    alignItems: 'center',
+    marginBottom: Spacing['2xl'],
+  },
+  bottleImage: {
+    width: 200,
+    height: 200,
+    resizeMode: 'contain',
+    marginBottom: Spacing.lg,
+  },
+  bottleHint: {
+    fontSize: Typography.sizes.sm,
+    color: Colors.text.inverse,
+    opacity: 0.8,
+    textAlign: 'center',
+    fontStyle: 'italic',
+  },
+  openBottleButton: {
+    backgroundColor: Colors.accent.mustardSea,
+    paddingHorizontal: Spacing['2xl'],
+    paddingVertical: Spacing.lg,
+    borderRadius: BorderRadius.lg,
+    ...Shadows.md,
+  },
+  openBottleText: {
+    color: Colors.text.primary,
+    fontSize: Typography.sizes.lg,
+    fontWeight: Typography.weights.bold,
+  },
+  messageContainer: {
+    flex: 1,
+    paddingHorizontal: Spacing.lg,
+  },
+  messageTitle: {
+    fontSize: Typography.sizes['2xl'],
+    fontWeight: Typography.weights.bold,
+    color: Colors.text.ocean,
+    textAlign: 'center',
+    marginBottom: Spacing.xl,
+  },
+  originalMessage: {
+    backgroundColor: 'rgba(1, 67, 72, 0.8)',
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.lg,
+    marginBottom: Spacing.xl,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  messageHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.md,
+  },
+  creatorName: {
+    fontSize: Typography.sizes.sm,
+    color: Colors.accent.mustardSea,
+    fontWeight: Typography.weights.semibold,
+  },
+  messageDate: {
+    fontSize: Typography.sizes.xs,
+    color: Colors.text.inverse,
+    opacity: 0.7,
+  },
+  messageText: {
+    fontSize: Typography.sizes.md,
+    color: Colors.text.inverse,
+    lineHeight: Typography.lineHeights.relaxed * Typography.sizes.md,
+    marginBottom: Spacing.md,
+  },
+  messagePhoto: {
+    width: '100%',
+    height: 200,
+    borderRadius: BorderRadius.md,
+    resizeMode: 'cover',
+  },
+  replyButton: {
+    backgroundColor: Colors.accent.mustardSea,
+    paddingVertical: Spacing.lg,
+    borderRadius: BorderRadius.lg,
+    alignItems: 'center',
+    ...Shadows.md,
+  },
+  replyButtonText: {
+    color: Colors.text.primary,
+    fontSize: Typography.sizes.lg,
+    fontWeight: Typography.weights.bold,
+  },
+  replyContainer: {
+    flex: 1,
+    paddingHorizontal: Spacing.lg,
+  },
+  replyTitle: {
+    fontSize: Typography.sizes['2xl'],
+    fontWeight: Typography.weights.bold,
+    color: Colors.text.ocean,
+    textAlign: 'center',
+    marginBottom: Spacing.xl,
+  },
+  sectionTitle: {
+    fontSize: Typography.sizes.lg,
+    fontWeight: Typography.weights.semibold,
+    color: Colors.text.ocean,
+    marginBottom: Spacing.md,
+  },
+  nameInput: {
+    backgroundColor: 'rgba(1, 67, 72, 0.8)',
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.lg,
+    fontSize: Typography.sizes.md,
+    color: Colors.text.inverse,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    marginBottom: Spacing.sm,
+    ...Shadows.md,
+  },
+  fieldNote: {
+    fontSize: Typography.sizes.xs,
+    color: Colors.text.secondary,
+    marginBottom: Spacing.xl,
+    fontStyle: 'italic',
+  },
+  replyInput: {
+    backgroundColor: 'rgba(1, 67, 72, 0.8)',
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.lg,
+    fontSize: Typography.sizes.md,
+    color: Colors.text.inverse,
+    minHeight: 120,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    ...Shadows.md,
+  },
+  characterCount: {
+    fontSize: Typography.sizes.xs,
+    color: Colors.text.secondary,
+    textAlign: 'right',
+    marginTop: Spacing.xs,
+    marginBottom: Spacing.xl,
+  },
+  photoContainer: {
+    alignItems: 'center',
+    marginBottom: Spacing.xl,
+  },
+  photo: {
+    width: 200,
+    height: 200,
+    borderRadius: BorderRadius.lg,
+    marginBottom: Spacing.md,
+  },
+  changePhotoButton: {
+    backgroundColor: 'rgba(212, 175, 55, 0.2)',
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.md,
+  },
+  changePhotoText: {
+    color: Colors.accent.mustardSea,
+    fontSize: Typography.sizes.sm,
+    fontWeight: Typography.weights.semibold,
+  },
+  photoButtons: {
+    flexDirection: 'row',
+    gap: Spacing.md,
+    marginBottom: Spacing.xl,
+  },
+  photoButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.accent.mustardSea,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    gap: Spacing.sm,
+    ...Shadows.md,
+  },
+  photoButtonText: {
+    color: Colors.text.primary,
+    fontSize: Typography.sizes.sm,
+    fontWeight: Typography.weights.semibold,
+  },
+  markFoundButton: {
+    backgroundColor: Colors.accent.seaweed,
+    paddingVertical: Spacing.lg,
+    borderRadius: BorderRadius.lg,
+    alignItems: 'center',
+    ...Shadows.md,
+  },
+  markFoundText: {
+    color: Colors.text.inverse,
+    fontSize: Typography.sizes.lg,
+    fontWeight: Typography.weights.bold,
+  },
+  disabledButton: {
+    opacity: 0.5,
+  },
+  optionsContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.lg,
+  },
+  optionsTitle: {
+    fontSize: Typography.sizes['2xl'],
+    fontWeight: Typography.weights.bold,
+    color: Colors.text.inverse,
+    textAlign: 'center',
+    marginBottom: Spacing.md,
+  },
+  optionsSubtitle: {
+    fontSize: Typography.sizes.md,
+    color: Colors.text.inverse,
+    opacity: 0.8,
+    textAlign: 'center',
+    marginBottom: Spacing['2xl'],
+    lineHeight: Typography.lineHeights.relaxed * Typography.sizes.md,
+  },
+  optionButtons: {
+    width: '100%',
+    gap: Spacing.lg,
+    marginBottom: Spacing.xl,
+  },
+  chatButton: {
+    backgroundColor: Colors.accent.mustardSea,
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.lg,
+    alignItems: 'center',
+    ...Shadows.md,
+  },
+  chatButtonText: {
+    color: Colors.text.primary,
+    fontSize: Typography.sizes.lg,
+    fontWeight: Typography.weights.bold,
+    marginTop: Spacing.sm,
+  },
+  chatButtonSubtext: {
+    color: Colors.text.primary,
+    fontSize: Typography.sizes.sm,
+    opacity: 0.8,
+    marginTop: Spacing.xs,
+  },
+  retossButton: {
+    backgroundColor: Colors.primary[600],
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.lg,
+    alignItems: 'center',
+    ...Shadows.md,
+  },
+  retossButtonText: {
+    color: Colors.text.inverse,
+    fontSize: Typography.sizes.lg,
+    fontWeight: Typography.weights.bold,
+    marginTop: Spacing.sm,
+  },
+  retossButtonSubtext: {
+    color: Colors.text.inverse,
+    fontSize: Typography.sizes.sm,
+    opacity: 0.8,
+    marginTop: Spacing.xs,
+  },
+  laterButton: {
+    paddingVertical: Spacing.md,
+  },
+  laterButtonText: {
+    color: Colors.text.inverse,
+    fontSize: Typography.sizes.md,
+    opacity: 0.7,
+    textDecorationLine: 'underline',
+  },
+  animationContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.lg,
+  },
+  animationTitle: {
+    fontSize: Typography.sizes['2xl'],
+    fontWeight: Typography.weights.bold,
+    color: Colors.text.inverse,
+    textAlign: 'center',
+    marginBottom: Spacing.md,
+  },
+  animationSubtitle: {
+    fontSize: Typography.sizes.md,
+    color: Colors.text.inverse,
+    opacity: 0.8,
+    textAlign: 'center',
+    marginBottom: Spacing['4xl'],
+  },
+  animatedBottle: {
+    width: 120,
+    height: 120,
+    resizeMode: 'contain',
   },
   successContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
-    backgroundColor: '#014348',
+    paddingHorizontal: Spacing.lg,
   },
   successIcon: {
-    fontSize: 64,
-    marginBottom: 20,
+    fontSize: 80,
+    marginBottom: Spacing.xl,
   },
   successTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#4CAF50',
+    fontSize: Typography.sizes['3xl'],
+    fontWeight: Typography.weights.bold,
+    color: Colors.text.inverse,
     textAlign: 'center',
-    marginBottom: 16,
+    marginBottom: Spacing.lg,
   },
   successText: {
-    fontSize: 16,
-    color: 'rgba(255, 255, 255, 0.8)',
+    fontSize: Typography.sizes.md,
+    color: Colors.text.inverse,
+    opacity: 0.9,
     textAlign: 'center',
-    marginBottom: 40,
-    lineHeight: 24,
+    lineHeight: Typography.lineHeights.relaxed * Typography.sizes.md,
+    marginBottom: Spacing.xl,
   },
-  scanLoadingOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(1, 67, 72, 0.9)', // Ocean overlay
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 1000,
-  },
-  scanLoadingText: {
-    color: '#D4AF37',
-    fontSize: 18,
-    fontWeight: '600',
-  },
-  fullScreen: {
-    flex: 1,
-    backgroundColor: '#014348',
-  },
-  foundButtons: {
-    gap: 12,
-    marginTop: 20,
-  },
-  bottleCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    padding: 20,
-    borderRadius: 15,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#D4AF37',
-    marginBottom: 8,
-  },
-  cardContent: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
-  messageSection: {
-    flex: 1,
-    paddingRight: 12,
-  },
-  imageSection: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cardMessage: {
-    fontSize: 16,
-    color: 'rgba(255, 255, 255, 0.9)',
-    fontStyle: 'italic',
-    marginBottom: 8,
-  },
-  cardDate: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.6)',
-    marginTop: 12,
-    textAlign: 'center',
-  },
-  cardImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-  },
-  journeySection: {
-    marginBottom: 20,
-  },
-  journeyButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    padding: 16,
-    borderRadius: 15,
+  successDetails: {
+    backgroundColor: 'rgba(1, 67, 72, 0.6)',
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.lg,
+    marginBottom: Spacing.xl,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
-  journeyButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
+  successDetailTitle: {
+    fontSize: Typography.sizes.lg,
+    fontWeight: Typography.weights.bold,
+    color: Colors.accent.mustardSea,
+    marginBottom: Spacing.sm,
   },
-  journeyButtonSubtext: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.8)',
+  successDetailText: {
+    fontSize: Typography.sizes.sm,
+    color: Colors.text.inverse,
+    opacity: 0.8,
   },
-  promptContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-    backgroundColor: '#014348',
+  continueButton: {
+    backgroundColor: Colors.accent.mustardSea,
+    paddingHorizontal: Spacing['2xl'],
+    paddingVertical: Spacing.lg,
+    borderRadius: BorderRadius.lg,
+    ...Shadows.md,
   },
-  promptTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#D4AF37',
-    textAlign: 'center',
-    marginBottom: 8,
-    textShadowColor: 'rgba(0,0,0,0.3)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 4,
+  continueButtonText: {
+    color: Colors.text.primary,
+    fontSize: Typography.sizes.lg,
+    fontWeight: Typography.weights.bold,
   },
-  promptText: {
-    fontSize: 16,
-    color: 'rgba(255, 255, 255, 0.8)',
-    textAlign: 'center',
-    marginBottom: 30,
-    lineHeight: 22,
-  },
-  promptButtons: {
-    gap: 12,
-    marginTop: 20,
-    width: '100%',
-    maxWidth: 300,
-  },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: '#014348',
-  },
-  modalHeader: {
+  currentNameContainer: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
-    justifyContent: 'flex-start',
-  },
-  modalContent: {
-    flex: 1,
-  },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-  },
-  backButton: {
-    padding: 8,
-  },
-  backButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  centeredButtonContainer: {
-    alignItems: 'center',
-    marginTop: 20,
-  },
-  compactButton: {
-    padding: 12,
-    borderRadius: 20,
-  },
-  conversationContainer: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 15,
-    marginBottom: 20,
+    backgroundColor: 'rgba(1, 67, 72, 0.6)',
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    marginBottom: Spacing.xl,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
-  originalMessage: {
-    padding: 20,
+  currentNameText: {
+    fontSize: Typography.sizes.md,
+    color: Colors.text.inverse,
+    fontWeight: Typography.weights.medium,
   },
-  senderLabel: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#D4AF37',
-    marginBottom: 8,
+  changeNameButton: {
+    backgroundColor: Colors.accent.mustardSea,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.sm,
   },
-  messageContent: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 12,
-  },
-  replySenderLabel: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#D4AF37',
-    marginBottom: 8,
-    marginTop: 16,
-  },
-  nestedReply: {
-    marginLeft: 16, // Indent the reply
-    marginTop: 16,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  nestedReplyInput: {
-    borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-    borderRadius: 12,
-    padding: 12,
-    fontSize: 14,
-    minHeight: 80,
-    marginBottom: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    color: '#fff',
-    textAlignVertical: 'top',
-  },
-  replyPhotoContainer: {
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  replyPhoto: {
-    width: 120,
-    height: 120,
-    borderRadius: 10,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-  },
-  removeReplyPhotoButton: {
-    padding: 4,
-  },
-  removeReplyPhotoText: {
-    color: '#D4AF37',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  replyPhotoButtons: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 16,
-  },
-  replyPhotoButton: {
-    flex: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    padding: 10,
-    borderRadius: 10,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  replyPhotoButtonText: {
-    fontSize: 12,
-    color: '#fff',
-    fontWeight: '600',
-  },
-  replyActionButtons: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 20,
-    marginBottom: 40,
-    paddingHorizontal: 20,
-  },
-  replyButton: {
-    flex: 1,
-    paddingVertical: 14,
+  changeNameText: {
+    fontSize: Typography.sizes.sm,
+    color: Colors.text.primary,
+    fontWeight: Typography.weights.semibold,
   },
 }); 

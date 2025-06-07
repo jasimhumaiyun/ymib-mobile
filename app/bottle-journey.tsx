@@ -91,13 +91,9 @@ export default function BottleJourneyScreen() {
         new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
       ).filter(event => event.event_type === 'found');
 
-      // Helper function to build nested reply tree
-      const buildReplyTree = (events: any[], parentId?: string): Reply[] => {
-        const directReplies = events.filter(event => 
-          event.parent_reply_id === parentId
-        );
-
-        return directReplies.map(event => {
+      // Helper function to build flat reply list (no nesting)
+      const buildFlatReplies = (events: any[]): Reply[] => {
+        return events.map(event => {
           // Skip system messages
           if (event.message === 'Bottle found') return null;
 
@@ -114,7 +110,7 @@ export default function BottleJourneyScreen() {
             created_at: event.created_at,
             finder_name: event.tosser_name || 'Anonymous',
             parent_reply_id: event.parent_reply_id,
-            replies: buildReplyTree(events, event.id) // Recursively build nested replies
+            replies: [] // No nested replies - flat structure
           };
         }).filter(Boolean) as Reply[];
       };
@@ -154,9 +150,8 @@ export default function BottleJourneyScreen() {
           return foundTime > currentCastTime && foundTime < nextCastTime;
         });
 
-        // Step 4: Build the nested reply tree for this journey step
-        // Start with replies that have no parent (top-level replies to the main message)
-        journeyStep.replies = buildReplyTree(relevantFoundEvents, undefined);
+        // Step 4: Build the flat reply list for this journey step
+        journeyStep.replies = buildFlatReplies(relevantFoundEvents);
 
         journeyEvents.push(journeyStep);
       });
@@ -211,7 +206,11 @@ export default function BottleJourneyScreen() {
     } catch (error) {
       console.error('Error fetching bottle journey:', error);
       Alert.alert('Error', 'Failed to load bottle journey');
-      router.back();
+      if (router.canDismiss()) {
+        router.dismissAll();
+      } else {
+        router.replace('/(tabs)');
+      }
     } finally {
       setLoading(false);
     }
@@ -408,7 +407,13 @@ export default function BottleJourneyScreen() {
             
             <Pressable 
               style={styles.primaryButton}
-              onPress={() => router.back()}
+              onPress={() => {
+                if (router.canDismiss()) {
+                  router.dismissAll();
+                } else {
+                  router.replace('/(tabs)');
+                }
+              }}
             >
               <Text style={styles.primaryButtonText}>Return to Profile</Text>
             </Pressable>
@@ -432,7 +437,13 @@ export default function BottleJourneyScreen() {
         <View style={styles.header}>
           <Pressable 
             style={styles.backButton}
-            onPress={() => router.back()}
+            onPress={() => {
+              if (router.canDismiss()) {
+                router.dismissAll();
+              } else {
+                router.replace('/(tabs)');
+              }
+            }}
           >
             <Ionicons name="arrow-back" size={24} color={Colors.text.ocean} />
           </Pressable>

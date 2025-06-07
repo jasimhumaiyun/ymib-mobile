@@ -3,9 +3,15 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 serve(async (req) => {
   try {
-    const { id, password, message, photoUrl, lat, lon } = await req.json();
+    const { id, password, message, photoUrl, lat, lon, finderName, tosserName } = await req.json();
     
-    console.log('Received request:', { id, password, message, photoUrl, lat, lon });
+    console.log('🔥 RECEIVED REQUEST:', { id, password, message, photoUrl, lat, lon, finderName, tosserName });
+    console.log('🔥 MESSAGE ANALYSIS:', { 
+      message, 
+      startsWithReply: message && message.startsWith("REPLY:"),
+      messageType: typeof message,
+      messageLength: message ? message.length : 0
+    });
     
     if (!id || !password || lat === undefined || lon === undefined) {
       console.log('Missing required fields');
@@ -32,13 +38,14 @@ serve(async (req) => {
       const { data, error } = await client
         .from("bottles")
         .insert({
-          id,
           password_hash: password,
           message: message || "Hello from YMIB!",
           photo_url: photoUrl,
           lat, 
           lon,
           status: "adrift",
+          creator_name: tosserName || 'Anonymous',
+          tosser_name: tosserName || 'Anonymous'
         })
         .select()
         .single();
@@ -50,12 +57,13 @@ serve(async (req) => {
       
       // Create cast_away event
       const { error: eventError } = await client.from("bottle_events").insert({
-        bottle_id: id, 
+        bottle_id: data.id, 
         event_type: "cast_away", 
         lat, 
         lon,
         message: message || "Hello from YMIB!",
-        photo_url: photoUrl
+        photo_url: photoUrl,
+        tosser_name: tosserName || 'Anonymous'
       });
       
       if (eventError) {
@@ -65,7 +73,9 @@ serve(async (req) => {
       return Response.json({ 
         success: true, 
         message: "Bottle tossed successfully",
-        bottle: data 
+        bottle: data,
+        id: data.id,
+        password: password
       });
     }
 
@@ -75,25 +85,49 @@ serve(async (req) => {
     }
 
     // Determine if this is a "mark as found" vs "re-toss" action
-    // If NO message parameter provided, it's just marking as found
-    // If message parameter provided (even if empty string), it's a re-toss
-    const isReToss = message !== undefined;
+    // Check if message starts with "REPLY:" - that means it's a found event with reply
+    // If message is provided but doesn't start with "REPLY:", it's a re-toss
+    const isReply = message && message.startsWith("REPLY:");
+    const isReToss = message !== undefined && !isReply;
     const newStatus = isReToss ? "adrift" : "found";
     const eventType = isReToss ? "cast_away" : "found";
 
-    console.log('Action type:', { isReToss, newStatus, eventType, messageProvided: message !== undefined, message });
+    console.log('🔥 ACTION TYPE ANALYSIS:', { 
+      message, 
+      messageUndefined: message === undefined,
+      messageStartsWithReply: message && message.startsWith("REPLY:"),
+      isReply, 
+      isReToss, 
+      newStatus, 
+      eventType, 
+      messageProvided: message !== undefined 
+    });
+    console.log('🔥 WILL CREATE EVENT:', { 
+      event_type: eventType, 
+      message: isReToss ? (message || "Continuing the journey...") : message,
+      finalMessage: isReToss ? (message || "Continuing the journey...") : message
+    });
 
     // Update the bottle with new message/photo and location
+    const updateData: any = {
+      lat,
+      lon,
+      status: newStatus,
+      found_at: new Date().toISOString()
+    };
+
+    // Only update message and photo for re-toss
+    if (isReToss) {
+      updateData.message = message || "Continuing the journey...";
+      updateData.tosser_name = tosserName || finderName || 'Anonymous';
+      if (photoUrl) {
+        updateData.photo_url = photoUrl;
+      }
+    }
+
     const { data, error } = await client
       .from("bottles")
-      .update({
-        message: isReToss ? (message || "Continuing the journey...") : bottle.message,
-        photo_url: photoUrl || bottle.photo_url,
-        lat,
-        lon,
-        status: newStatus,
-        found_at: new Date().toISOString()
-      })
+      .update(updateData)
       .eq("id", id)
       .select()
       .single();
@@ -104,18 +138,31 @@ serve(async (req) => {
     }
     
     // Create appropriate event
-    const { error: eventError } = await client.from("bottle_events").insert({
+    const eventData: any = {
       bottle_id: id, 
       event_type: eventType, 
       lat,
       lon,
-      message: isReToss ? (message || "Continuing the journey...") : bottle.message,
+      message: isReToss ? (message || "Continuing the journey...") : message,
       photo_url: photoUrl || bottle.photo_url
-    });
+    };
+
+    // Add appropriate name field based on event type
+    if (eventType === "found") {
+      eventData.finder_name = finderName || 'Anonymous';
+    } else if (eventType === "cast_away") {
+      eventData.tosser_name = tosserName || finderName || 'Anonymous';
+    }
+
+    console.log('🔥 INSERTING EVENT DATA:', eventData);
+    
+    const { error: eventError } = await client.from("bottle_events").insert(eventData);
     
     if (eventError) {
-      console.error('Failed to create bottle_events:', eventError);
+      console.error('🔥 FAILED TO CREATE EVENT:', eventError);
       // Don't fail the whole operation for event logging
+    } else {
+      console.log('🔥 EVENT CREATED SUCCESSFULLY');
     }
     
     return Response.json({ 

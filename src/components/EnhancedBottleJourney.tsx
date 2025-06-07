@@ -82,18 +82,15 @@ export default function EnhancedBottleJourney({ journey, bottleId }: EnhancedBot
     }
   };
 
-  // Recursive function to render nested replies
-  const renderReply = (reply: Reply, depth: number = 0, replyIndex: number, bottleId?: string) => {
-    const maxDepth = 3; // Limit nesting depth to prevent UI issues
-    
+  // Simplified function to render flat replies (no nesting)
+  const renderReply = (reply: Reply, replyIndex: number) => {
     return (
-      <View key={reply.id} style={[styles.replyPill, { marginLeft: depth * 16 }]}>
+      <View key={reply.id} style={styles.replyPill}>
         <View style={styles.replyHeader}>
           <View style={styles.replyHeaderLeft}>
-            {/* Remove reply icon */}
             <View>
-              <Text style={styles.replyTitle}>FIND</Text>
-              <Text style={styles.replySubtitle}>Reply {replyIndex + 1}</Text>
+              <Text style={styles.replyTitle}>REPLY</Text>
+              <Text style={styles.replySubtitle}>#{replyIndex + 1}</Text>
             </View>
           </View>
           <View style={styles.replyHeaderRight}>
@@ -124,27 +121,6 @@ export default function EnhancedBottleJourney({ journey, bottleId }: EnhancedBot
             </View>
           )}
         </View>
-
-        {/* Reply button for nested replies - only show if we haven't reached max depth */}
-        {depth < maxDepth && (
-          <View style={styles.replyActions}>
-            <Pressable 
-              style={styles.replyButton}
-              onPress={() => handleReplyToReply(reply.id, bottleId)}
-            >
-              <Text style={styles.replyButtonText}>Reply</Text>
-            </Pressable>
-          </View>
-        )}
-
-        {/* Render nested replies if they exist and we haven't reached max depth */}
-        {reply.replies && reply.replies.length > 0 && depth < maxDepth && (
-          <View style={styles.nestedRepliesContainer}>
-            {reply.replies.map((nestedReply, nestedIndex) => 
-              renderReply(nestedReply, depth + 1, nestedIndex, bottleId)
-            )}
-          </View>
-        )}
       </View>
     );
   };
@@ -232,11 +208,11 @@ export default function EnhancedBottleJourney({ journey, bottleId }: EnhancedBot
               </View>
             </Pressable>
 
-            {/* Nested Replies */}
+            {/* Flat Replies */}
             {hasReplies && isExpanded && (
               <View style={styles.repliesContainer}>
                 {step.replies?.map((reply, replyIndex) => (
-                  renderReply(reply, 0, replyIndex, bottleId)
+                  renderReply(reply, replyIndex)
                 ))}
               </View>
             )}

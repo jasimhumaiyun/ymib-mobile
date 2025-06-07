@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, ImageBackground, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
@@ -17,8 +17,13 @@ interface BottleInteraction {
 export default function ProfileScreen() {
   const [loading, setLoading] = useState(false);
 
-  // Use the SAME hook that works for world map
-  const { data: trailMarkers, isLoading } = useBottles(true);
+  // Use the SAME hook that works for world map - force refresh
+  const { data: trailMarkers, isLoading, refetch } = useBottles(true);
+  
+  // Force refresh when profile loads
+  useEffect(() => {
+    refetch();
+  }, [refetch]);
 
   // Process the trail markers to get stats and recent bottles (same logic as world map)
   const { stats, bottles } = useMemo(() => {
@@ -70,6 +75,8 @@ export default function ProfileScreen() {
         type = 'retossed';
       } else if (bottle.actions.has('found')) {
         type = 'found';
+      } else if (bottle.actions.has('created')) {
+        type = 'created';
       }
       
       recentBottles.push({

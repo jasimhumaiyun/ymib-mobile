@@ -13,6 +13,10 @@ export default function RootLayout() {
           presentation: 'modal',
           headerShown: false 
         }} />
+        <Stack.Screen name="toss" options={{ 
+          presentation: 'modal',
+          headerShown: false 
+        }} />
         <Stack.Screen name="found" options={{ 
           presentation: 'modal',
           headerShown: false 

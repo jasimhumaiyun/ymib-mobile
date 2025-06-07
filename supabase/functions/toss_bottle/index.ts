@@ -53,10 +53,10 @@ serve(async (req) => {
     // Insert bottle event
     const { error: eventError } = await client.from("bottle_events").insert({
       bottle_id: bottle.id,
-      type: "cast_away",
+      event_type: "cast_away",
       lat,
       lon,
-      text: message,
+      message: message,
       photo_url: photoUrl,
     });
     
