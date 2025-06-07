@@ -1,33 +1,45 @@
-import React from 'react';
 import { Tabs } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { ImageBackground } from 'react-native';
+import OceanTabBar from '../../src/components/OceanTabBar';
 
 export default function TabLayout() {
   return (
-    <Tabs
-      screenOptions={{
-        tabBarActiveTintColor: '#2196F3',
-        headerShown: false,
-      }}
+    <ImageBackground 
+      source={require('../../images/homepage_BG_new.png')} 
+      style={{ flex: 1 }}
+      resizeMode="cover"
     >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Home',
-          tabBarIcon: ({ color, focused }: { color: string; focused: boolean }) => (
-            <Ionicons name={focused ? 'home' : 'home-outline'} size={24} color={color} />
-          ),
+      <Tabs
+        tabBar={(props) => <OceanTabBar {...props} />}
+        screenOptions={{
+          headerShown: false, // We'll handle headers in individual screens
         }}
-      />
-      <Tabs.Screen
-        name="explore"
-        options={{
-          title: 'Explore',
-          tabBarIcon: ({ color, focused }: { color: string; focused: boolean }) => (
-            <Ionicons name={focused ? 'map' : 'map-outline'} size={24} color={color} />
-          ),
-        }}
-      />
-    </Tabs>
+      >
+        <Tabs.Screen
+          name="index"
+          options={{
+            title: 'Harbor',
+          }}
+        />
+        <Tabs.Screen
+          name="explore"
+          options={{
+            title: 'World Map',
+          }}
+        />
+        <Tabs.Screen
+          name="messages"
+          options={{
+            title: 'Chats',
+          }}
+        />
+        <Tabs.Screen
+          name="profile"
+          options={{
+            title: 'Profile',
+          }}
+        />
+      </Tabs>
+    </ImageBackground>
   );
 } 

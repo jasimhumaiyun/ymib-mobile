@@ -1,241 +1,467 @@
 import React, { useState, useMemo } from 'react';
-import { View, Text, Pressable, StyleSheet, ActivityIndicator, Platform } from 'react-native';
+import { View, Text, Pressable, StyleSheet, ActivityIndicator, Platform, ImageBackground } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
-import { useBottles, BottleMapPoint } from '../../src/hooks/useBottles';
+import { useBottles, BottleTrailMarker } from '../../src/hooks/useBottles';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
+import { Colors, Typography, Spacing, BorderRadius, Shadows } from '../../src/constants/theme';
 
-type FilterType = 'all' | 'tossed' | 'found';
+type FilterType = 'all' | 'created' | 'found' | 'retossed';
 
-export default function ExploreScreen() {
+// Custom map style for ocean theme
+const customMapStyle = [
+  {
+    "featureType": "water",
+    "elementType": "geometry",
+    "stylers": [
+      {
+        "color": "#004D40" // Deep ocean color from theme
+      }
+    ]
+  },
+  {
+    "featureType": "landscape",
+    "elementType": "geometry.fill",
+    "stylers": [
+      {
+        "color": "#00695C" // Darker sea green for land
+      }
+    ]
+  },
+  {
+    "featureType": "road",
+    "stylers": [
+      {
+        "visibility": "off" // Hide roads for cleaner look
+      }
+    ]
+  },
+  {
+    "featureType": "poi",
+    "stylers": [
+      {
+        "visibility": "off" // Hide points of interest
+      }
+    ]
+  },
+  {
+    "featureType": "administrative",
+    "elementType": "labels",
+    "stylers": [
+      {
+        "visibility": "simplified"
+      },
+      {
+        "color": "#80CBC4" // Sea foam for labels
+      }
+    ]
+  },
+  {
+    "featureType": "administrative.country",
+    "elementType": "geometry.stroke",
+    "stylers": [
+      {
+        "color": "#26A69A" // Sea green for borders
+      },
+      {
+        "weight": 0.5
+      }
+    ]
+  }
+];
+
+export default function WorldMapScreen() {
   const [filter, setFilter] = useState<FilterType>('all');
   const [region, setRegion] = useState({
-    latitude: 40.7128,
-    longitude: -74.0060,
-    latitudeDelta: 50,
-    longitudeDelta: 50,
+    latitude: 20.0,
+    longitude: 0.0,
+    latitudeDelta: 120,
+    longitudeDelta: 120,
   });
   
   const qc = useQueryClient();
-  const { data: bottles, isLoading, error } = useBottles(true);
+  const { data: trailMarkers, isLoading, error } = useBottles(true);
 
   // Refresh map data whenever this tab is focused
   useFocusEffect(
     React.useCallback(() => {
-      console.log('🗺️ Explore tab focused - refreshing map data...');
-      qc.invalidateQueries({ queryKey: ['bottles-map'] });
+      console.log('🌍 World Map focused - refreshing global data...');
+      qc.invalidateQueries({ queryKey: ['bottles-trail'] });
     }, [qc])
   );
 
-  // Filter bottles and add iOS jitter to prevent overlapping
-  const filteredBottles = useMemo(() => {
-    if (!bottles) return [];
+  // Filter trail markers with proper spacing
+  const filteredMarkers = useMemo(() => {
+    if (!trailMarkers) return [];
     
-    const filtered = bottles.filter(bottle => {
+    const filtered = trailMarkers.filter(marker => {
       if (filter === 'all') return true;
-      if (filter === 'tossed') return bottle.status === 'adrift';
-      if (filter === 'found') return bottle.status === 'found';
+      if (filter === 'created') return marker.actionType === 'created';
+      if (filter === 'found') return marker.actionType === 'found';
+      if (filter === 'retossed') return marker.actionType === 'retossed';
       return false;
     });
 
-    // iOS-specific fix: Add deterministic jitter to prevent overlapping markers
-    if (Platform.OS === 'ios') {
-      const coordMap = new Map<string, BottleMapPoint[]>();
-      
-      // Group bottles by coordinate
-      filtered.forEach(bottle => {
-        const coordKey = `${bottle.lat.toFixed(5)}:${bottle.lon.toFixed(5)}`;
-        if (!coordMap.has(coordKey)) {
-          coordMap.set(coordKey, []);
-        }
-        coordMap.get(coordKey)!.push(bottle);
-      });
-      
-      // Apply jitter to overlapping bottles
-      const result: BottleMapPoint[] = [];
-      coordMap.forEach(bottlesAtCoord => {
-        if (bottlesAtCoord.length === 1) {
-          result.push(bottlesAtCoord[0]);
-        } else {
-          // Multiple bottles at same coordinate - apply jitter
-          bottlesAtCoord.forEach((bottle, index) => {
-            if (index === 0) {
-              result.push(bottle);
-            } else {
-              const angle = (index * 2 * Math.PI) / bottlesAtCoord.length;
-              const distance = 0.0001 * index;
-              const jitterLat = distance * Math.cos(angle);
-              const jitterLon = distance * Math.sin(angle);
-              
-              result.push({
-                ...bottle,
-                lat: bottle.lat + jitterLat,
-                lon: bottle.lon + jitterLon,
-              });
-            }
-          });
-        }
-      });
-      
-      return result;
-    }
+    // Apply intelligent spacing for overlapping markers
+    const coordMap = new Map<string, BottleTrailMarker[]>();
     
-    // Android works fine without jitter
-    return filtered;
-  }, [bottles, filter]);
-
-  // Memoize markers to prevent unnecessary re-renders
-  const markers = useMemo(() => {
-    // Sort bottles to render green pins (found) on top of blue pins (adrift)
-    const sortedBottles = [...filteredBottles].sort((a, b) => {
-      // Green pins (found) should render last (on top)
-      if (a.status === 'found' && b.status === 'adrift') return 1;
-      if (a.status === 'adrift' && b.status === 'found') return -1;
-      return 0;
+    filtered.forEach(marker => {
+      const coordKey = `${marker.lat.toFixed(4)}:${marker.lon.toFixed(4)}`;
+      if (!coordMap.has(coordKey)) {
+        coordMap.set(coordKey, []);
+      }
+      coordMap.get(coordKey)!.push(marker);
     });
+    
+    const result: BottleTrailMarker[] = [];
+    coordMap.forEach(markersAtCoord => {
+      if (markersAtCoord.length === 1) {
+        result.push(markersAtCoord[0]);
+      } else {
+        markersAtCoord.forEach((marker, index) => {
+          if (index === 0) {
+            result.push(marker);
+          } else {
+            const angle = (index * 60) * (Math.PI / 180);
+            const distance = 0.0008 * index;
+            const latOffset = distance * Math.cos(angle);
+            const lonOffset = distance * Math.sin(angle);
+            
+            result.push({
+              ...marker,
+              lat: marker.lat + latOffset,
+              lon: marker.lon + lonOffset,
+            });
+          }
+        });
+      }
+    });
+    
+    return result;
+  }, [trailMarkers, filter]);
 
-    return sortedBottles.map(bottle => (
-      <Marker
-        key={bottle.id}
-        coordinate={{ latitude: bottle.lat, longitude: bottle.lon }}
-        pinColor={bottle.status === 'adrift' ? '#2196F3' : '#4CAF50'}
-        title={`Bottle ${bottle.id.slice(-4)}`}
-        description={`Status: ${bottle.status}`}
-        tracksViewChanges={false}
-        zIndex={bottle.status === 'found' ? 1000 : 100} // Green pins on top
-        opacity={bottle.status === 'found' ? 1.0 : 0.8} // Green pins more prominent
-      />
-    ));
-  }, [filteredBottles]);
-
-  const handleFilterChange = (newFilter: FilterType) => {
-    setFilter(newFilter);
+  // Get marker styling based on action type
+  const getMarkerStyle = (marker: BottleTrailMarker) => {
+    switch (marker.actionType) {
+      case 'created':
+        return {
+          pinColor: Colors.accent.treasure,
+          title: `🆕 Created`,
+          description: `"${marker.message.slice(0, 40)}${marker.message.length > 40 ? '...' : ''}"`
+        };
+      case 'found':
+        return {
+          pinColor: Colors.accent.seaweed,
+          title: `🔍 Found`,
+          description: `Bottle discovered and read`
+        };
+      case 'retossed':
+        return {
+          pinColor: Colors.secondary[500],
+          title: `🔄 Retossed`,
+          description: `"${marker.message.slice(0, 40)}${marker.message.length > 40 ? '...' : ''}"`
+        };
+      default:
+        return {
+          pinColor: Colors.neutral[400],
+          title: `❓ Unknown`,
+          description: `Unknown action`
+        };
+    }
   };
+
+  // Render markers
+  const markers = useMemo(() => {
+    return filteredMarkers.map(marker => {
+      const style = getMarkerStyle(marker);
+      
+      return (
+        <Marker
+          key={marker.id}
+          coordinate={{ latitude: marker.lat, longitude: marker.lon }}
+          pinColor={style.pinColor}
+          title={style.title}
+          description={style.description}
+          tracksViewChanges={false}
+        />
+      );
+    });
+  }, [filteredMarkers]);
+
+  // Calculate counts for filters
+  const counts = useMemo(() => {
+    if (!trailMarkers) return { all: 0, created: 0, found: 0, retossed: 0 };
+    
+    return {
+      all: trailMarkers.length,
+      created: trailMarkers.filter(m => m.actionType === 'created').length,
+      found: trailMarkers.filter(m => m.actionType === 'found').length,
+      retossed: trailMarkers.filter(m => m.actionType === 'retossed').length,
+    };
+  }, [trailMarkers]);
 
   if (isLoading) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#2196F3" />
-          <Text style={styles.loadingText}>Loading bottles...</Text>
-        </View>
-      </SafeAreaView>
+      <ImageBackground 
+        source={require('../../images/homepage_BG_new.png')} 
+        style={styles.container}
+        resizeMode="cover"
+      >
+        <SafeAreaView style={styles.safeArea}>
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={Colors.accent.mustardSea} />
+            <Text style={styles.loadingText}>Charting global waters...</Text>
+          </View>
+        </SafeAreaView>
+      </ImageBackground>
     );
   }
 
   if (error) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>❌ Error loading bottles</Text>
-        </View>
-      </SafeAreaView>
+      <ImageBackground 
+        source={require('../../images/homepage_BG_new.png')} 
+        style={styles.container}
+        resizeMode="cover"
+      >
+        <SafeAreaView style={styles.safeArea}>
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>🌊 Unable to load ocean charts</Text>
+            <Text style={styles.errorSubtext}>Check your connection to the seas</Text>
+          </View>
+        </SafeAreaView>
+      </ImageBackground>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Segmented Control */}
-      <View style={styles.segmentedControl}>
-        <Pressable
-          style={[styles.segment, filter === 'all' && styles.activeSegment]}
-          onPress={() => handleFilterChange('all')}
-        >
-          <Text style={[styles.segmentText, filter === 'all' && styles.activeSegmentText]}>
-            All ({bottles?.length || 0})
+    <ImageBackground 
+      source={require('../../images/homepage_BG_new.png')} 
+      style={styles.container}
+      resizeMode="cover"
+    >
+      <SafeAreaView style={styles.safeArea}>
+        {/* Elegant Header */}
+        <View style={styles.header}>
+          <Text style={styles.title}>Global Ocean Chart</Text>
+          <Text style={styles.subtitle}>
+            {counts.all > 0 
+              ? `${counts.all} messages drift across ${counts.all === 1 ? 'the sea' : 'the seas'}`
+              : 'The oceans await your first message'
+            }
           </Text>
-        </Pressable>
-        <Pressable
-          style={[styles.segment, filter === 'tossed' && styles.activeSegment]}
-          onPress={() => handleFilterChange('tossed')}
-        >
-          <Text style={[styles.segmentText, filter === 'tossed' && styles.activeSegmentText]}>
-            Tossed ({bottles?.filter(b => b.status === 'adrift').length || 0})
-          </Text>
-        </Pressable>
-        <Pressable
-          style={[styles.segment, filter === 'found' && styles.activeSegment]}
-          onPress={() => handleFilterChange('found')}
-        >
-          <Text style={[styles.segmentText, filter === 'found' && styles.activeSegmentText]}>
-            Found ({bottles?.filter(b => b.status === 'found').length || 0})
-          </Text>
-        </Pressable>
-      </View>
+        </View>
 
-      {/* Map */}
-      <MapView
-        style={styles.map}
-        provider={PROVIDER_GOOGLE}
-        region={region}
-        onRegionChangeComplete={setRegion}
-        showsUserLocation={true}
-        showsMyLocationButton={true}
-        showsPointsOfInterest={false}
-        showsBuildings={false}
-        showsTraffic={false}
-        showsIndoors={false}
-        mapType="standard"
-        minZoomLevel={2}
-        maxZoomLevel={10}
-      >
-        {markers}
-      </MapView>
-    </SafeAreaView>
+        {/* Refined Filter Tabs */}
+        <View style={styles.filterContainer}>
+          <Pressable
+            style={[styles.filterTab, filter === 'all' && styles.activeTab]}
+            onPress={() => setFilter('all')}
+          >
+            <Text style={[styles.filterText, filter === 'all' && styles.activeFilterText]}>
+              All ({counts.all})
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[styles.filterTab, filter === 'created' && styles.activeTab]}
+            onPress={() => setFilter('created')}
+          >
+            <Text style={[styles.filterText, filter === 'created' && styles.activeFilterText]}>
+              Created ({counts.created})
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[styles.filterTab, filter === 'found' && styles.activeTab]}
+            onPress={() => setFilter('found')}
+          >
+            <Text style={[styles.filterText, filter === 'found' && styles.activeFilterText]}>
+              Found ({counts.found})
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[styles.filterTab, filter === 'retossed' && styles.activeTab]}
+            onPress={() => setFilter('retossed')}
+          >
+            <Text style={[styles.filterText, filter === 'retossed' && styles.activeFilterText]}>
+              Retossed ({counts.retossed})
+            </Text>
+          </Pressable>
+        </View>
+
+        {/* Ocean Map */}
+        <View style={styles.mapContainer}>
+          <MapView
+            style={styles.map}
+            provider={PROVIDER_GOOGLE}
+            region={region}
+            onRegionChangeComplete={setRegion}
+            customMapStyle={customMapStyle}
+            showsUserLocation={true}
+            showsMyLocationButton={false}
+            showsPointsOfInterest={false}
+            showsBuildings={false}
+            showsTraffic={false}
+            showsIndoors={false}
+            mapType="standard"
+            minZoomLevel={2}
+            maxZoomLevel={12}
+            userLocationPriority="passive"
+            loadingEnabled={true}
+            loadingIndicatorColor={Colors.accent.mustardSea}
+            loadingBackgroundColor={Colors.primary[900]}
+          >
+            {markers}
+          </MapView>
+          
+          {/* Map Legend */}
+          <View style={styles.legend}>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendDot, { backgroundColor: Colors.accent.treasure }]} />
+              <Text style={styles.legendText}>Created</Text>
+            </View>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendDot, { backgroundColor: Colors.accent.seaweed }]} />
+              <Text style={styles.legendText}>Found</Text>
+            </View>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendDot, { backgroundColor: Colors.secondary[500] }]} />
+              <Text style={styles.legendText}>Retossed</Text>
+            </View>
+          </View>
+        </View>
+      </SafeAreaView>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+  },
+  safeArea: {
+    flex: 1,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: Spacing.lg,
   },
   loadingText: {
-    marginTop: 10,
-    fontSize: 16,
-    color: '#666',
+    marginTop: Spacing.lg,
+    fontSize: Typography.sizes.lg,
+    fontWeight: Typography.weights.medium,
+    color: Colors.text.inverse,
+    textAlign: 'center',
   },
   errorContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: Spacing.lg,
   },
   errorText: {
-    fontSize: 16,
-    color: 'red',
+    fontSize: Typography.sizes.xl,
+    fontWeight: Typography.weights.bold,
+    color: Colors.text.inverse,
+    textAlign: 'center',
+    marginBottom: Spacing.sm,
   },
-  segmentedControl: {
-    flexDirection: 'row',
-    margin: 16,
-    backgroundColor: '#f0f0f0',
-    borderRadius: 8,
-    padding: 4,
+  errorSubtext: {
+    fontSize: Typography.sizes.md,
+    color: Colors.text.inverse,
+    opacity: 0.7,
+    textAlign: 'center',
   },
-  segment: {
-    flex: 1,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
+  header: {
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.xl,
     alignItems: 'center',
-    borderRadius: 6,
   },
-  activeSegment: {
-    backgroundColor: '#2196F3',
+  title: {
+    fontSize: Typography.sizes['3xl'],
+    fontWeight: Typography.weights.bold,
+    color: Colors.text.ocean,
+    textAlign: 'center',
+    marginBottom: Spacing.sm,
+    textShadowColor: 'rgba(255, 255, 255, 0.3)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
-  segmentText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#666',
+  subtitle: {
+    fontSize: Typography.sizes.md,
+    color: Colors.text.secondary,
+    textAlign: 'center',
+    fontWeight: Typography.weights.medium,
   },
-  activeSegmentText: {
-    color: '#fff',
+  filterContainer: {
+    flexDirection: 'row',
+    marginHorizontal: Spacing.lg,
+    marginBottom: Spacing.lg,
+    backgroundColor: 'rgba(1, 67, 72, 0.7)',
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.xs,
+    ...Shadows.md,
+  },
+  filterTab: {
+    flex: 1,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.xs,
+    alignItems: 'center',
+    borderRadius: BorderRadius.lg,
+  },
+  activeTab: {
+    backgroundColor: Colors.accent.mustardSea,
+    ...Shadows.base,
+  },
+  filterText: {
+    fontSize: Typography.sizes.sm,
+    fontWeight: Typography.weights.semibold,
+    color: Colors.text.inverse,
+    opacity: 0.7,
+    textAlign: 'center',
+  },
+  activeFilterText: {
+    color: Colors.text.primary,
+    opacity: 1,
+    fontWeight: Typography.weights.bold,
+  },
+  mapContainer: {
+    flex: 1,
+    marginHorizontal: Spacing.lg,
+    marginBottom: Spacing.lg,
+    borderRadius: BorderRadius.xl,
+    overflow: 'hidden',
+    ...Shadows.ocean,
   },
   map: {
     flex: 1,
+  },
+  legend: {
+    position: 'absolute',
+    bottom: Spacing.lg,
+    right: Spacing.lg,
+    backgroundColor: 'rgba(1, 67, 72, 0.9)',
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: BorderRadius.lg,
+    ...Shadows.md,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: Spacing.xs,
+  },
+  legendDot: {
+    width: 8,
+    height: 8,
+    borderRadius: BorderRadius.full,
+    marginRight: Spacing.sm,
+  },
+  legendText: {
+    fontSize: Typography.sizes.xs,
+    color: Colors.text.inverse,
+    fontWeight: Typography.weights.medium,
   },
 }); 

@@ -17,7 +17,7 @@ export default function BottleJourney({ journey }: BottleJourneyProps) {
   
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>🍾 Bottle Journey</Text>
+      <Text style={styles.title}>Bottle Journey</Text>
       {journey.map((step, index) => {
         console.log(`📸 Step ${index + 1} photo_url:`, step.photo_url);
         return (
@@ -57,26 +57,27 @@ export default function BottleJourney({ journey }: BottleJourneyProps) {
 const styles = StyleSheet.create({
   container: {
     marginBottom: 20,
+    padding: 20,
   },
   title: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#4CAF50',
+    color: '#D4AF37', // Mustard yellow
     textAlign: 'center',
     marginBottom: 16,
   },
   pillBox: {
-    backgroundColor: '#f9f9f9',
-    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 15,
     padding: 16,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#e0e0e0',
+    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
   pillHeader: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#4CAF50',
+    color: '#D4AF37', // Mustard yellow
     marginBottom: 8,
   },
   pillContent: {
@@ -89,14 +90,14 @@ const styles = StyleSheet.create({
   },
   message: {
     fontSize: 15,
-    color: '#333',
+    color: 'rgba(255, 255, 255, 0.9)',
     lineHeight: 20,
     marginBottom: 4,
     fontStyle: 'italic',
   },
   date: {
     fontSize: 12,
-    color: '#666',
+    color: 'rgba(255, 255, 255, 0.6)',
   },
   photoSection: {
     width: 80,
@@ -106,5 +107,7 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
   },
 }); 

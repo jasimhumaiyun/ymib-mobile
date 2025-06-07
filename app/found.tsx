@@ -1,14 +1,14 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, Pressable, Image, Alert, ScrollView } from 'react-native';
-import { Stack, router } from 'expo-router';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TextInput, Pressable, Image, Alert, ScrollView, Modal } from 'react-native';
+import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../src/lib/supabase';
-import QRScanner from '../src/components/QRScanner';
 import BottleJourney from '../src/components/BottleJourney';
 
-type FoundStep = 'scan' | 'journey' | 'respond' | 'tossing' | 'success';
+type FoundStep = 'loading' | 'viewing' | 'askReply' | 'replying' | 'askRetoss' | 'adding' | 'retossing' | 'success';
 
 interface BottleData {
   id: string;
@@ -26,28 +26,40 @@ interface BottleInfo {
   id: string;
   status: 'adrift' | 'found';
   journey: JourneyStep[];
+  message: string;
+  photo_url?: string;
+  created_at: string;
 }
 
 export default function FoundModal() {
-  const [step, setStep] = useState<FoundStep>('scan');
+  const params = useLocalSearchParams();
+  const [step, setStep] = useState<FoundStep>('loading');
   const [bottleData, setBottleData] = useState<BottleData | null>(null);
-  const [journey, setJourney] = useState<BottleInfo | null>(null);
-  const [message, setMessage] = useState('');
-  const [photo, setPhoto] = useState<string | null>(null);
+  const [bottleInfo, setBottleInfo] = useState<BottleInfo | null>(null);
+  const [journey, setJourney] = useState<JourneyStep[]>([]);
+  const [replyMessage, setReplyMessage] = useState('');
+  const [replyPhoto, setReplyPhoto] = useState<string | null>(null);
+  const [newMessage, setNewMessage] = useState('');
+  const [newPhoto, setNewPhoto] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [showJourneyModal, setShowJourneyModal] = useState(false);
+  const [currentUserName, setCurrentUserName] = useState('Anonymous'); // For "Discovered by:" text
+  const [bottleSenderName, setBottleSenderName] = useState('Anonymous'); // For message sender
+  const [parentReplyId, setParentReplyId] = useState<string | undefined>(undefined); // For nested replies
 
-  const handleQRScanned = async (data: BottleData) => {
-    console.log('QR Scanned in found flow:', data);
-    setBottleData(data);
-    setLoading(true);
-    
+  // Load current user name for "Discovered by:" text
+  useEffect(() => {
+    loadCurrentUserName();
+  }, []);
+
+  const loadCurrentUserName = async () => {
     try {
-      await fetchBottleInfo(data);
+      const savedName = await AsyncStorage.getItem('userName');
+      if (savedName && savedName.trim()) {
+        setCurrentUserName(savedName.trim());
+      }
     } catch (error) {
-      Alert.alert('Error', 'Failed to fetch bottle information');
-      setStep('scan');
-    } finally {
-      setLoading(false);
+      console.log('Error loading current user name:', error);
     }
   };
 
@@ -63,29 +75,43 @@ export default function FoundModal() {
 
       if (bottleError || !bottle) {
         Alert.alert('Error', 'Invalid bottle ID or password');
-        setStep('scan');
+        router.back();
         return;
       }
 
-      // Fetch complete journey from bottle_events
-      const { data: events, error: eventsError } = await supabase
+      // Fetch complete journey from bottle_events - GET ALL EVENTS to check if found
+      const { data: allEvents, error: allEventsError } = await supabase
         .from('bottle_events')
         .select('message, photo_url, created_at, event_type')
         .eq('bottle_id', bottleData.id)
-        .eq('event_type', 'cast_away')
         .order('created_at', { ascending: true });
 
-      console.log('📝 Fetched events:', events);
-      console.log('🗃️ Original bottle data:', bottle);
+      console.log('📝 Fetched all events:', allEvents);
 
-      if (eventsError) {
-        console.error('Events fetch error:', eventsError);
+      if (allEventsError) {
+        console.error('Events fetch error:', allEventsError);
         Alert.alert('Error', 'Failed to fetch bottle journey');
-        setStep('scan');
+        router.back();
         return;
       }
 
-      // Build journey ONLY from events (chronological order)
+      // Check if bottle is already found by looking for found events
+      // BUT ONLY if the bottle status is still "found" - if it's "adrift" after retoss, it's findable again!
+      const hasFoundEvent = allEvents?.some(event => event.event_type === 'found') || false;
+      
+      // The key logic: Only go to retoss if bottle status is "found" AND there are found events
+      // If bottle status is "adrift", it means it was retossed and is now findable again
+      const shouldGoToRetoss = bottle.status === 'found' && hasFoundEvent;
+      
+      // Filter only cast_away events for journey display
+      const events = allEvents?.filter(event => event.event_type === 'cast_away') || [];
+
+      console.log('🗃️ Original bottle data:', bottle);
+      console.log('🔍 Has found event:', hasFoundEvent);
+      console.log('🔍 Bottle status:', bottle.status);
+      console.log('🔍 Should go to retoss:', shouldGoToRetoss);
+
+      // Build journey ONLY from cast_away events (chronological order)
       const journey: JourneyStep[] = [];
       
       // Add all cast_away events in chronological order
@@ -111,17 +137,60 @@ export default function FoundModal() {
         });
       }
 
-      setJourney({
+      setBottleInfo({
         id: bottle.id,
         status: bottle.status,
-        journey
+        journey,
+        message: bottle.message,
+        photo_url: bottle.photo_url,
+        created_at: bottle.created_at
       });
-      setStep('journey');
+
+      setJourney(journey);
+      
+      if (shouldGoToRetoss) {
+        // Bottle currently found and has found events - skip to ask retoss
+        console.log('🔍 Bottle currently found, going to ask retoss step');
+        setStep('askRetoss');
+      } else {
+        // Fresh bottle OR retossed bottle (now adrift again) - show viewing step with mark as found button
+        console.log('✅ Bottle is findable, showing viewing step');
+        setStep('viewing');
+      }
+      
     } catch (error) {
+      console.error('❌ Error fetching bottle info:', error);
       Alert.alert('Error', 'Failed to fetch bottle information');
-      setStep('scan');
+      router.back();
     }
   };
+
+  // Get bottle data from URL parameters and fetch bottle info
+  useEffect(() => {
+    if (params.bottleId && params.bottlePassword) {
+      const data = {
+        id: params.bottleId as string,
+        password: params.bottlePassword as string,
+      };
+      console.log('🔍 Found flow initialized with bottle data:', data);
+      setBottleData(data);
+      fetchBottleInfo(data);
+    } else {
+      // If no params, redirect back to scan
+      console.log('❌ No bottle data provided, redirecting to scan');
+      router.replace('/scan');
+    }
+  }, [params.bottleId, params.bottlePassword]);
+
+  useEffect(() => {
+    if (bottleData) {
+      // Check for parent_reply_id in params for nested replies
+      const parentId = params.parent_reply_id as string | undefined;
+      setParentReplyId(parentId);
+      
+      fetchBottleInfo(bottleData);
+    }
+  }, [bottleData]);
 
   const pickImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -132,7 +201,7 @@ export default function FoundModal() {
     });
 
     if (!result.canceled) {
-      setPhoto(result.assets[0].uri);
+      setNewPhoto(result.assets[0].uri);
     }
   };
 
@@ -151,7 +220,7 @@ export default function FoundModal() {
     });
 
     if (!result.canceled) {
-      setPhoto(result.assets[0].uri);
+      setNewPhoto(result.assets[0].uri);
     }
   };
 
@@ -192,10 +261,9 @@ export default function FoundModal() {
   };
 
   const handleMarkAsFound = async () => {
-    if (!bottleData || !journey) return;
+    if (!bottleData || !bottleInfo) return;
     
     setLoading(true);
-    setStep('tossing');
     
     try {
       // Get location
@@ -203,7 +271,6 @@ export default function FoundModal() {
       if (status !== 'granted') {
         Alert.alert('Permission Required', 'Location permission is needed');
         setLoading(false);
-        setStep('journey');
         return;
       }
 
@@ -211,28 +278,93 @@ export default function FoundModal() {
         accuracy: Location.Accuracy.Balanced,
       });
 
-      // Call edge function to mark as found - DON'T send message to indicate it's just marking found
-      const { data, error } = await supabase.functions.invoke('claim_or_toss_bottle', {
-        body: {
-          ...bottleData,
-          // NO message parameter = just marking as found
-          // message: journey.journey[journey.journey.length - 1].message, 
-          photoUrl: journey.journey[journey.journey.length - 1].photo_url,
-          lat: coords.latitude,
-          lon: coords.longitude,
-        },
-      });
+      // Create a FOUND event by adding an event to bottle_events table
+      const { error } = await supabase
+        .from('bottle_events')
+        .insert([
+          {
+            bottle_id: bottleData.id,
+            event_type: 'found',
+            lat: coords.latitude,
+            lon: coords.longitude,
+            message: 'Bottle found', // System message - will be filtered out in journey display
+            created_at: new Date().toISOString()
+          }
+        ]);
 
       if (error) {
-        Alert.alert('Error', error.message || 'Failed to mark bottle as found');
-        setStep('journey');
+        console.error('❌ Error marking bottle as found:', error);
+        Alert.alert('Error', 'Failed to mark bottle as found');
         return;
       }
 
-      setStep('success');
+      console.log('✅ Bottle marked as found - FOUND event created');
+      
+      // Move directly to replying step (skip askReply)
+      setStep('replying');
+      
     } catch (error) {
+      console.error('❌ Error in handleMarkAsFound:', error);
       Alert.alert('Error', 'Something went wrong. Please try again.');
-      setStep('journey');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSubmitReply = async () => {
+    if (!bottleData || !replyMessage.trim()) return;
+    
+    setLoading(true);
+    
+    try {
+      // Get location for the reply
+      const { coords } = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+
+      // Upload photo if provided
+      let photoUrl = null;
+      if (replyPhoto) {
+        photoUrl = await uploadPhoto(replyPhoto);
+        if (!photoUrl) {
+          Alert.alert('Error', 'Failed to upload photo');
+          setLoading(false);
+          return;
+        }
+      }
+
+      // Create a FOUND event with special reply message format
+      const replyEventMessage = `REPLY: ${replyMessage}`;
+      
+      const { error } = await supabase
+        .from('bottle_events')
+        .insert([
+          {
+            bottle_id: bottleData.id,
+            event_type: 'found',
+            lat: coords.latitude,
+            lon: coords.longitude,
+            message: replyEventMessage,
+            photo_url: photoUrl,
+            parent_reply_id: parentReplyId, // Include parent_reply_id for nested replies
+            created_at: new Date().toISOString()
+          }
+        ]);
+
+      if (error) {
+        console.error('❌ Error submitting reply:', error);
+        Alert.alert('Error', 'Failed to submit reply');
+        return;
+      }
+
+      console.log('✅ Reply submitted successfully');
+      
+      // Move to ask retoss step
+      setStep('askRetoss');
+      
+    } catch (error) {
+      console.error('❌ Error in handleSubmitReply:', error);
+      Alert.alert('Error', 'Something went wrong. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -242,7 +374,7 @@ export default function FoundModal() {
     if (!bottleData) return;
     
     setLoading(true);
-    setStep('tossing');
+    setStep('retossing');
     
     try {
       // Get location
@@ -250,7 +382,7 @@ export default function FoundModal() {
       if (status !== 'granted') {
         Alert.alert('Permission Required', 'Location permission is needed');
         setLoading(false);
-        setStep('respond');
+        setStep('adding');
         return;
       }
 
@@ -260,15 +392,15 @@ export default function FoundModal() {
 
       // Upload photo if provided
       let photoUrl = null;
-      if (photo) {
-        photoUrl = await uploadPhoto(photo);
+      if (newPhoto) {
+        photoUrl = await uploadPhoto(newPhoto);
       }
 
       // Call edge function with new message/photo
       const { data, error } = await supabase.functions.invoke('claim_or_toss_bottle', {
         body: {
           ...bottleData,
-          message: message || 'Continuing the journey...',
+          message: newMessage || 'Continuing the journey...',
           photoUrl,
           lat: coords.latitude,
           lon: coords.longitude,
@@ -277,76 +409,94 @@ export default function FoundModal() {
 
       if (error) {
         Alert.alert('Error', error.message || 'Failed to re-toss bottle');
-        setStep('respond');
+        setStep('adding');
         return;
       }
 
       setStep('success');
     } catch (error) {
       Alert.alert('Error', 'Something went wrong. Please try again.');
-      setStep('respond');
+      setStep('adding');
     } finally {
       setLoading(false);
     }
   };
 
   const handleClose = () => {
-    router.back();
+    router.dismissAll();
   };
 
   const renderContent = () => {
     switch (step) {
-      case 'scan':
-        return (
-          <View style={styles.fullScreen}>
-            <QRScanner
-              title="Found a Bottle!"
-              onScan={handleQRScanned}
-              onCancel={handleClose}
-            />
-          </View>
-        );
-
-      case 'journey':
-        if (!journey) return null;
-        
+      case 'loading':
         return (
           <SafeAreaView style={styles.container}>
-            <ScrollView style={styles.contentContainer}>
-              <Text style={styles.title}>🍾 You Found a Bottle!</Text>
-              
-              <BottleJourney journey={journey.journey} />
+            <View style={styles.loadingContainer}>
+              <Text style={styles.loadingTitle}>🔍 Finding bottle...</Text>
+              <Text style={styles.loadingText}>
+                Loading bottle information and journey history
+              </Text>
+            </View>
+          </SafeAreaView>
+        );
 
-              <Text style={styles.sectionTitle}>What would you like to do?</Text>
-              
-              <View style={styles.foundButtons}>
-                {journey.status === 'adrift' && (
+      case 'viewing':
+        return (
+          <SafeAreaView style={styles.container}>
+            {/* Universal Back to Home Button */}
+            <View style={styles.topBar}>
+              <Pressable style={styles.backButton} onPress={handleClose}>
+                <Text style={styles.backButtonText}>← Home</Text>
+              </Pressable>
+            </View>
+
+            <ScrollView style={styles.contentContainer}>
+              <Text style={styles.title}>Bottle Found!</Text>
+              <Text style={styles.subtitle}>
+                Discovered by: {currentUserName} • Continue its journey!
+              </Text>
+
+              {bottleInfo && (
+                <View style={styles.bottleCard}>
+                  <Text style={styles.cardTitle}>{bottleSenderName}'s Message</Text>
+                  <View style={styles.cardContent}>
+                    <View style={styles.messageSection}>
+                      <Text style={styles.cardMessage}>"{bottleInfo.message}"</Text>
+                    </View>
+                    {bottleInfo.photo_url && (
+                      <View style={styles.imageSection}>
+                        <Image source={{ uri: bottleInfo.photo_url }} style={styles.cardImage} />
+                      </View>
+                    )}
+                  </View>
+                  <Text style={styles.cardDate}>
+                    Created: {new Date(bottleInfo.created_at).toLocaleDateString()}
+                  </Text>
+                </View>
+              )}
+
+              {journey.length > 0 && (
+                <View style={styles.journeySection}>
                   <Pressable 
-                    style={styles.foundButton} 
-                    onPress={handleMarkAsFound}
-                    disabled={loading}
+                    style={styles.journeyButton}
+                    onPress={() => setShowJourneyModal(true)}
                   >
-                    <Text style={styles.foundButtonText}>
-                      ✅ Mark as Found
+                    <Text style={styles.journeyButtonText}>🍾 View Bottle Journey</Text>
+                    <Text style={styles.journeyButtonSubtext}>
+                      See all {journey.length} message{journey.length !== 1 ? 's' : ''} in this bottle's story
                     </Text>
                   </Pressable>
-                )}
-                
+                </View>
+              )}
+
+              <View style={styles.centeredButtonContainer}>
                 <Pressable 
-                  style={[styles.foundButton, styles.foundButtonSecondary]} 
-                  onPress={() => setStep('respond')}
+                  style={[styles.button, styles.foundButton, styles.compactButton]} 
+                  onPress={handleMarkAsFound}
+                  disabled={loading}
                 >
                   <Text style={styles.foundButtonText}>
-                    💬 Add Your Response & Re-toss
-                  </Text>
-                </Pressable>
-                
-                <Pressable 
-                  style={[styles.button, styles.primaryButton]} 
-                  onPress={() => setStep('scan')}
-                >
-                  <Text style={[styles.buttonText, styles.secondaryButtonText]}>
-                    Back
+                    Mark as Found & Reply
                   </Text>
                 </Pressable>
               </View>
@@ -354,20 +504,204 @@ export default function FoundModal() {
           </SafeAreaView>
         );
 
-      case 'respond':
+      case 'askReply':
+        // This step is now skipped - we go directly from 'viewing' to 'replying'
+        return null;
+
+      case 'replying':
         return (
           <SafeAreaView style={styles.container}>
+            {/* Universal Back to Home Button */}
+            <View style={styles.topBar}>
+              <Pressable style={styles.backButton} onPress={handleClose}>
+                <Text style={styles.backButtonText}>← Home</Text>
+              </Pressable>
+            </View>
+
             <ScrollView style={styles.contentContainer}>
-              <Text style={styles.title}>Add Your Response</Text>
+              <Text style={styles.title}>Reply to Sender</Text>
               <Text style={styles.subtitle}>
-                Continue this bottle's journey with your own message!
+                What would you like to say about this message?
+              </Text>
+
+              {/* Unified Conversation Container */}
+              {bottleInfo && (
+                <View style={styles.conversationContainer}>
+                  {/* Original Message */}
+                  <View style={styles.originalMessage}>
+                    <Text style={styles.senderLabel}>Anonymous said</Text>
+                    <View style={styles.messageContent}>
+                      <View style={styles.messageSection}>
+                        <Text style={styles.cardMessage}>"{bottleInfo.message}"</Text>
+                      </View>
+                      {bottleInfo.photo_url && (
+                        <View style={styles.imageSection}>
+                          <Image source={{ uri: bottleInfo.photo_url }} style={styles.cardImage} />
+                        </View>
+                      )}
+                    </View>
+                    <Text style={styles.cardDate}>
+                      {new Date(bottleInfo.created_at).toLocaleDateString()}
+                    </Text>
+
+                    {/* Nested Reply Section */}
+                    <View style={styles.nestedReply}>
+                      <Text style={styles.replySenderLabel}>You said</Text>
+                      <TextInput
+                        style={styles.nestedReplyInput}
+                        placeholder="Enter your reply..."
+                        placeholderTextColor="rgba(255, 255, 255, 0.6)"
+                        value={replyMessage}
+                        onChangeText={setReplyMessage}
+                        multiline
+                        maxLength={300}
+                        textAlignVertical="top"
+                      />
+                      
+                      {/* Reply Photo Section */}
+                      {replyPhoto ? (
+                        <View style={styles.replyPhotoContainer}>
+                          <Image source={{ uri: replyPhoto }} style={styles.replyPhoto} />
+                          <Pressable 
+                            style={styles.removeReplyPhotoButton} 
+                            onPress={() => setReplyPhoto(null)}
+                          >
+                            <Text style={styles.removeReplyPhotoText}>Remove Photo</Text>
+                          </Pressable>
+                        </View>
+                      ) : (
+                        <View style={styles.replyPhotoButtons}>
+                          <Pressable style={styles.replyPhotoButton} onPress={async () => {
+                            const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
+                            if (!permissionResult.granted) {
+                              Alert.alert('Permission Required', 'Camera permission is needed to take photos');
+                              return;
+                            }
+                            const result = await ImagePicker.launchCameraAsync({
+                              allowsEditing: true,
+                              aspect: [1, 1],
+                              quality: 0.8,
+                            });
+                            if (!result.canceled) {
+                              setReplyPhoto(result.assets[0].uri);
+                            }
+                          }}>
+                            <Text style={styles.replyPhotoButtonText}>📸 Take Photo</Text>
+                          </Pressable>
+                          <Pressable style={styles.replyPhotoButton} onPress={async () => {
+                            const result = await ImagePicker.launchImageLibraryAsync({
+                              mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                              allowsEditing: true,
+                              aspect: [1, 1],
+                              quality: 0.8,
+                            });
+                            if (!result.canceled) {
+                              setReplyPhoto(result.assets[0].uri);
+                            }
+                          }}>
+                            <Text style={styles.replyPhotoButtonText}>🖼️ Gallery</Text>
+                          </Pressable>
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                </View>
+              )}
+
+              {/* Action Buttons - Properly Positioned */}
+              <View style={styles.replyActionButtons}>
+                <Pressable 
+                  style={[styles.button, styles.secondaryButton, styles.replyButton]} 
+                  onPress={() => setStep('askRetoss')}
+                >
+                  <Text style={[styles.buttonText, styles.secondaryButtonText]}>
+                    Skip Reply
+                  </Text>
+                </Pressable>
+                
+                <Pressable 
+                  style={[styles.button, styles.primaryButton, styles.replyButton]} 
+                  onPress={handleSubmitReply}
+                  disabled={loading || !replyMessage.trim()}
+                >
+                  <Text style={styles.buttonText}>
+                    Submit Reply & Continue
+                  </Text>
+                </Pressable>
+              </View>
+            </ScrollView>
+          </SafeAreaView>
+        );
+
+      case 'askRetoss':
+        return (
+          <SafeAreaView style={styles.container}>
+            {/* Universal Back to Home Button */}
+            <View style={styles.topBar}>
+              <Pressable style={styles.backButton} onPress={handleClose}>
+                <Text style={styles.backButtonText}>← Home</Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.promptContainer}>
+              <Text style={styles.promptTitle}>🔄 Retoss Bottle?</Text>
+              <Text style={styles.promptText}>
+                Would you like to retoss this bottle now or save it for later?
+              </Text>
+
+              <View style={styles.promptButtons}>
+                <Pressable 
+                  style={[styles.button, styles.secondaryButton]} 
+                  onPress={() => {
+                    // Save for later - just close the modal
+                    // User can retoss from profile later
+                    Alert.alert(
+                      'Saved!', 
+                      'This bottle has been saved to your profile. You can retoss it anytime from the Found tab.',
+                      [{ text: 'OK', onPress: () => router.dismissAll() }]
+                    );
+                  }}
+                >
+                  <Text style={[styles.buttonText, styles.secondaryButtonText]}>
+                    Save for Later
+                  </Text>
+                </Pressable>
+                
+                <Pressable 
+                  style={[styles.button, styles.primaryButton]} 
+                  onPress={() => setStep('adding')}
+                >
+                  <Text style={styles.buttonText}>
+                    Retoss Now
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+          </SafeAreaView>
+        );
+
+      case 'adding':
+        return (
+          <SafeAreaView style={styles.container}>
+            {/* Universal Back to Home Button */}
+            <View style={styles.topBar}>
+              <Pressable style={styles.backButton} onPress={handleClose}>
+                <Text style={styles.backButtonText}>← Home</Text>
+              </Pressable>
+            </View>
+
+            <ScrollView style={styles.contentContainer}>
+              <Text style={styles.title}>Add Your Message</Text>
+              <Text style={styles.subtitle}>
+                Continue this bottle's journey with your story!
               </Text>
 
               <TextInput
                 style={styles.messageInput}
-                placeholder="Write your response here..."
-                value={message}
-                onChangeText={setMessage}
+                placeholder="Add your message to this bottle's journey..."
+                placeholderTextColor="rgba(255, 255, 255, 0.6)"
+                value={newMessage}
+                onChangeText={setNewMessage}
                 multiline
                 maxLength={500}
                 textAlignVertical="top"
@@ -375,12 +709,12 @@ export default function FoundModal() {
 
               <Text style={styles.sectionTitle}>Add a Photo (Optional)</Text>
               
-              {photo ? (
+              {newPhoto ? (
                 <View style={styles.photoContainer}>
-                  <Image source={{ uri: photo }} style={styles.photo} />
+                  <Image source={{ uri: newPhoto }} style={styles.photo} />
                   <Pressable 
                     style={styles.changePhotoButton} 
-                    onPress={() => setPhoto(null)}
+                    onPress={() => setNewPhoto(null)}
                   >
                     <Text style={styles.changePhotoText}>Remove Photo</Text>
                   </Pressable>
@@ -396,23 +730,14 @@ export default function FoundModal() {
                 </View>
               )}
 
-              <View style={styles.actionButtons}>
+              <View style={styles.centeredButtonContainer}>
                 <Pressable 
-                  style={[styles.button, styles.secondaryButton]} 
-                  onPress={() => setStep('journey')}
-                >
-                  <Text style={[styles.buttonText, styles.secondaryButtonText]}>
-                    Back
-                  </Text>
-                </Pressable>
-                
-                <Pressable 
-                  style={[styles.button, styles.primaryButton]} 
+                  style={[styles.button, styles.primaryButton, styles.compactButton]} 
                   onPress={handleReToss}
-                  disabled={loading}
+                  disabled={loading || !newMessage.trim()}
                 >
                   <Text style={styles.buttonText}>
-                    🍾 Re-toss Bottle!
+                    Retoss Bottle!
                   </Text>
                 </Pressable>
               </View>
@@ -420,13 +745,13 @@ export default function FoundModal() {
           </SafeAreaView>
         );
 
-      case 'tossing':
+      case 'retossing':
         return (
           <SafeAreaView style={styles.container}>
             <View style={styles.loadingContainer}>
-              <Text style={styles.loadingTitle}>Processing...</Text>
+              <Text style={styles.loadingTitle}>Retossing bottle...</Text>
               <Text style={styles.loadingText}>
-                Updating the bottle's journey 🌊
+                Adding your message and sending it back into the world 🌊
               </Text>
             </View>
           </SafeAreaView>
@@ -436,13 +761,13 @@ export default function FoundModal() {
         return (
           <SafeAreaView style={styles.container}>
             <View style={styles.successContainer}>
-              <Text style={styles.successIcon}>🎉</Text>
-              <Text style={styles.successTitle}>Success!</Text>
+              <Text style={styles.successIcon}>🌊</Text>
+              <Text style={styles.successTitle}>Bottle Retossed!</Text>
               <Text style={styles.successText}>
-                You've contributed to this bottle's amazing journey.
-                Thanks for being part of the YMIB community!
+                Your message has been added to this bottle's journey.
+                Others can now discover your contribution to the story!
               </Text>
-              <Pressable style={styles.button} onPress={handleClose}>
+              <Pressable style={[styles.button, styles.primaryButton, { width: 180, alignSelf: 'center' }]} onPress={handleClose}>
                 <Text style={styles.buttonText}>Continue Exploring</Text>
               </Pressable>
             </View>
@@ -456,12 +781,35 @@ export default function FoundModal() {
 
   return (
     <View style={styles.fullScreen}>
-      {loading && step === 'scan' && (
+      <Stack.Screen options={{ 
+        presentation: 'modal',
+        headerShown: false 
+      }} />
+      {loading && step === 'loading' && (
         <View style={styles.scanLoadingOverlay}>
           <Text style={styles.scanLoadingText}>Loading bottle...</Text>
         </View>
       )}
       {renderContent()}
+      
+      {/* Journey Modal */}
+      <Modal
+        visible={showJourneyModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowJourneyModal(false)}
+      >
+        <SafeAreaView style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Pressable style={styles.backButton} onPress={() => setShowJourneyModal(false)}>
+              <Text style={styles.backButtonText}>← Home</Text>
+            </Pressable>
+          </View>
+          <ScrollView style={styles.modalContent}>
+            <BottleJourney journey={journey} />
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
     </View>
   );
 }
@@ -469,41 +817,47 @@ export default function FoundModal() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#014348', // Ocean theme background
   },
   contentContainer: {
     flex: 1,
     padding: 20,
   },
   title: {
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: 'bold',
-    color: '#4CAF50',
+    color: '#D4AF37', // Mustard yellow
     textAlign: 'center',
     marginBottom: 8,
+    textShadowColor: 'rgba(0,0,0,0.3)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
   },
   subtitle: {
     fontSize: 16,
-    color: '#666',
+    color: 'rgba(255, 255, 255, 0.8)',
     textAlign: 'center',
     marginBottom: 30,
+    lineHeight: 22,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#333',
+    color: '#D4AF37', // Mustard yellow
     marginBottom: 16,
     textAlign: 'center',
   },
   messageInput: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    borderRadius: 15,
     padding: 16,
     fontSize: 16,
     height: 120,
     marginBottom: 30,
-    backgroundColor: '#f9f9f9',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    color: '#fff',
+    textAlignVertical: 'top',
   },
   photoContainer: {
     alignItems: 'center',
@@ -512,15 +866,18 @@ const styles = StyleSheet.create({
   photo: {
     width: 200,
     height: 200,
-    borderRadius: 12,
+    borderRadius: 15,
     marginBottom: 12,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
   },
   changePhotoButton: {
     padding: 8,
   },
   changePhotoText: {
-    color: '#4CAF50',
+    color: '#D4AF37',
     fontSize: 16,
+    fontWeight: '600',
   },
   photoButtons: {
     flexDirection: 'row',
@@ -529,75 +886,95 @@ const styles = StyleSheet.create({
   },
   photoButton: {
     flex: 1,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
     padding: 16,
-    borderRadius: 12,
+    borderRadius: 15,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
   photoButtonText: {
-    fontSize: 16,
-    color: '#333',
+    fontSize: 15,
+    color: '#fff',
+    fontWeight: '600',
   },
   actionButtons: {
+    flexDirection: 'row',
     gap: 12,
     marginTop: 20,
+    marginBottom: 40,
   },
   button: {
     padding: 16,
-    borderRadius: 12,
+    borderRadius: 25,
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 5,
+    elevation: 4,
   },
   primaryButton: {
-    backgroundColor: '#2196F3',
+    backgroundColor: '#D4AF37', // Mustard yellow
   },
   foundButton: {
-    backgroundColor: '#4CAF50',
+    backgroundColor: '#D4AF37', // Mustard yellow
     padding: 16,
-    borderRadius: 12,
+    borderRadius: 25,
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 5,
+    elevation: 4,
   },
   foundButtonSecondary: {
-    backgroundColor: '#2196F3',
+    backgroundColor: '#D4AF37',
   },
   foundButtonText: {
-    color: '#fff',
+    color: '#014348', // Dark text for contrast
     fontSize: 16,
     fontWeight: '600',
   },
   secondaryButton: {
-    backgroundColor: '#f0f0f0',
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
   },
   buttonText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#fff',
+    color: '#014348', // Dark text for primary buttons
   },
   secondaryButtonText: {
-    color: '#333',
+    color: '#fff', // White text for secondary buttons
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
+    backgroundColor: '#014348',
   },
   loadingTitle: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#4CAF50',
+    color: '#D4AF37',
     textAlign: 'center',
     marginBottom: 8,
   },
   loadingText: {
     fontSize: 16,
-    color: '#666',
+    color: 'rgba(255, 255, 255, 0.8)',
     textAlign: 'center',
+    lineHeight: 22,
   },
   successContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
+    backgroundColor: '#014348',
   },
   successIcon: {
     fontSize: 64,
@@ -612,7 +989,7 @@ const styles = StyleSheet.create({
   },
   successText: {
     fontSize: 16,
-    color: '#666',
+    color: 'rgba(255, 255, 255, 0.8)',
     textAlign: 'center',
     marginBottom: 40,
     lineHeight: 24,
@@ -623,22 +1000,248 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.8)',
+    backgroundColor: 'rgba(1, 67, 72, 0.9)', // Ocean overlay
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 1000,
   },
   scanLoadingText: {
-    color: '#fff',
+    color: '#D4AF37',
     fontSize: 18,
     fontWeight: '600',
   },
   fullScreen: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#014348',
   },
   foundButtons: {
     gap: 12,
     marginTop: 20,
+  },
+  bottleCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    padding: 20,
+    borderRadius: 15,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#D4AF37',
+    marginBottom: 8,
+  },
+  cardContent: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  messageSection: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  imageSection: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardMessage: {
+    fontSize: 16,
+    color: 'rgba(255, 255, 255, 0.9)',
+    fontStyle: 'italic',
+    marginBottom: 8,
+  },
+  cardDate: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.6)',
+    marginTop: 12,
+    textAlign: 'center',
+  },
+  cardImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  journeySection: {
+    marginBottom: 20,
+  },
+  journeyButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    padding: 16,
+    borderRadius: 15,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  journeyButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  journeyButtonSubtext: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.8)',
+  },
+  promptContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: '#014348',
+  },
+  promptTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#D4AF37',
+    textAlign: 'center',
+    marginBottom: 8,
+    textShadowColor: 'rgba(0,0,0,0.3)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
+  },
+  promptText: {
+    fontSize: 16,
+    color: 'rgba(255, 255, 255, 0.8)',
+    textAlign: 'center',
+    marginBottom: 30,
+    lineHeight: 22,
+  },
+  promptButtons: {
+    gap: 12,
+    marginTop: 20,
+    width: '100%',
+    maxWidth: 300,
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: '#014348',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    justifyContent: 'flex-start',
+  },
+  modalContent: {
+    flex: 1,
+  },
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+  },
+  backButton: {
+    padding: 8,
+  },
+  backButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  centeredButtonContainer: {
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  compactButton: {
+    padding: 12,
+    borderRadius: 20,
+  },
+  conversationContainer: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 15,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  originalMessage: {
+    padding: 20,
+  },
+  senderLabel: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#D4AF37',
+    marginBottom: 8,
+  },
+  messageContent: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  replySenderLabel: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#D4AF37',
+    marginBottom: 8,
+    marginTop: 16,
+  },
+  nestedReply: {
+    marginLeft: 16, // Indent the reply
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  nestedReplyInput: {
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    borderRadius: 12,
+    padding: 12,
+    fontSize: 14,
+    minHeight: 80,
+    marginBottom: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    color: '#fff',
+    textAlignVertical: 'top',
+  },
+  replyPhotoContainer: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  replyPhoto: {
+    width: 120,
+    height: 120,
+    borderRadius: 10,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  removeReplyPhotoButton: {
+    padding: 4,
+  },
+  removeReplyPhotoText: {
+    color: '#D4AF37',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  replyPhotoButtons: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
+  },
+  replyPhotoButton: {
+    flex: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    padding: 10,
+    borderRadius: 10,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  replyPhotoButtonText: {
+    fontSize: 12,
+    color: '#fff',
+    fontWeight: '600',
+  },
+  replyActionButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 20,
+    marginBottom: 40,
+    paddingHorizontal: 20,
+  },
+  replyButton: {
+    flex: 1,
+    paddingVertical: 14,
   },
 }); 

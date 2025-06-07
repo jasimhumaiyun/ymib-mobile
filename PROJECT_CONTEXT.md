@@ -16,119 +16,357 @@
 ymib-mobile/
 ├── app/                   # Expo Router screens
 │   ├── (tabs)/
-│   │   ├── _layout.tsx    # Bottom tab navigation
-│   │   ├── index.tsx      # Home screen with FAB
-│   │   └── explore.tsx    # Map view with bottles
-│   ├── _layout.tsx        # Root layout with providers
-│   └── scan.tsx           # Bottle scanning/claiming modal
+│   │   ├── _layout.tsx    # Bottom tab navigation (Home/Explore/Profile)
+│   │   ├── index.tsx      # Home screen with unified scan button
+│   │   ├── explore.tsx    # Map with bottle markers
+│   │   └── profile.tsx    # User profile with bottle history & stats
+│   ├── scan.tsx           # QR scanning with smart routing
+│   ├── toss.tsx           # CREATE flow for new bottles
+│   ├── found.tsx          # FIND/RETOSS flow for existing bottles
+│   └── _layout.tsx        # Root layout
 ├── src/
-│   ├── components/        # Reusable UI components
-│   ├── hooks/            # Custom hooks (useBottles)
-│   ├── lib/              # Supabase client config
-│   └── types/            # TypeScript definitions
-├── supabase/
-│   ├── functions/        # Edge Functions
-│   └── config.toml       # Function configuration
-└── assets/               # Images and icons
+│   ├── components/
+│   │   ├── BottleJourney.tsx           # Original journey component
+│   │   ├── EnhancedBottleJourney.tsx   # Enhanced with nested replies
+│   │   └── UnifiedQRScanner.tsx        # Smart bottle scanner
+│   ├── lib/
+│   │   └── supabase.ts    # Supabase client config
+│   └── services/          # API service functions
+└── supabase/             # Database schema & functions
 ```
 
-## Development Progress
+## Current Development Status
 
-### ✅ Milestone 1: Foundation (COMPLETE)
-- [x] Expo TypeScript project with Expo Router
-- [x] Supabase client integration 
-- [x] React Query setup for state management
-- [x] Basic navigation structure
-- [x] Environment configuration
+### ✅ **Completed Milestones**
 
-### ✅ Milestone 2: Map & Exploration (COMPLETE)
-- [x] Interactive Google Maps integration
-- [x] Real-time bottle updates via Supabase subscriptions
-- [x] Smooth filtering system (All/Tossed/Found)
-- [x] Cross-platform marker optimization (iOS jitter fix)
-- [x] Status-based marker colors (blue=adrift, green=found)
-- [x] Pin prioritization with zIndex and visual distinction
+#### **Milestone 1: Core Foundation** 
+- Expo setup with TypeScript
+- Supabase integration
+- Basic navigation structure
+- Database schema design
 
-### ✅ Milestone 3: Toss Bottle Flow (COMPLETE)
-- [x] FAB (Floating Action Button) on home screen
-- [x] Photo upload to Supabase storage
-- [x] Location-based bottle creation
-- [x] Edge function deployment (`toss_bottle`)
-- [x] Success screen with bottle details
-- [x] Real-time map updates after tossing
+#### **Milestone 2: Basic Bottle System**
+- QR code scanning functionality  
+- Database operations (create/read bottles)
+- Photo upload to Supabase Storage
+- Basic toss and found flows
 
-### ✅ Milestone 4: Claim/Find with Printed Bottles (COMPLETE)
-- [x] QR code scanning interface
-- [x] Bottle lifecycle management (claim → toss → find → re-toss)
-- [x] Edge functions: `claim_or_toss_bottle` and `find_bottle`
-- [x] Anonymous function access (JWT bypass)
-- [x] Real-time bottle state transitions
-- [x] Development testing tools
-- [x] Complete bottle state management without duplicates
+#### **Milestone 3: Maps & Discovery**
+- Interactive map with react-native-maps
+- Real-time bottle markers on map
+- Location-based bottle discovery
+- Map clustering for performance
 
-### 🎯 Next Milestone: Production Polish & Advanced Features
-- [ ] Professional QR camera scanning
-- [ ] User authentication system
-- [ ] Bottle content viewing (messages/photos)
-- [ ] Advanced map clustering for dense areas
-- [ ] Push notifications for nearby bottles
-- [ ] User profiles and bottle history
+#### **Milestone 4: Complete Bottle Lifecycle**
+- Separate "Toss" and "Found" buttons
+- Full bottle journey tracking
+- Photo attachments working
+- Real-time map updates
+- End-to-end testing with mock bottles
 
-## Key Features Implemented
+#### **Milestone 5: Unified Smart Scanner**
+- Single "Scan Bottle" button replacing separate toss/found
+- Automatic bottle detection (new → CREATE, existing → FIND)
+- Smart routing based on database status
+- Enhanced UX with loading states
+- Test bottles work for complete lifecycle
 
-### 🗺️ Interactive Map
-- **Real-time updates**: New bottles appear instantly on map
-- **Smart filtering**: All/Tossed/Found with live counters
-- **Cross-platform optimization**: Smooth performance on iOS/Android
-- **Visual prioritization**: Green pins render above blue pins
-- **Coordinate handling**: Deterministic jitter for overlapping markers
+#### **Milestone 6: Profile Tab & Nested Replies**
+- New Profile tab in bottom navigation
+- Enhanced bottle journey visualization
+- Nested conversation threads (replies to each toss)
+- Expandable message interactions
+- Rich mock data with conversation examples
 
-### 📱 Bottle Management
-- **Complete lifecycle**: claim → toss → find → re-toss → find...
-- **QR code integration**: JSON format with ID and password
-- **Location services**: Automatic GPS coordinates
-- **Photo uploads**: Supabase storage integration
-- **Anonymous access**: No authentication required
+#### **Milestone 7: Consistent Naming Convention** ✅ **COMPLETE**
+**Objective**: Unified naming convention throughout the app to clearly distinguish bottle interaction types.
 
-### ⚡ Real-time System
-- **Supabase subscriptions**: Instant bottle updates across devices  
-- **Event-driven architecture**: bottle_events table for all state changes
-- **Optimistic updates**: UI updates immediately with real-time sync
-- **Duplicate prevention**: Smart bottle update logic
+**Key Implementation**:
+- **CREATE** (🆕): Start a fresh bottle's journey (first-time toss of new bottle)  
+- **FIND** (🔍): Discover existing bottles created by others
+- **RETOSS** (🔄): Add your message to found bottles and send back out
 
-## Technical Implementation
+**Updated Components**:
+- **Profile Screen**: Three-tab system (Created/Found/All Conversations) with color coding
+- **Home Screen**: Smart routing with CREATE/FIND explanation cards
+- **Enhanced Journey**: Step type detection with consistent icon system (🆕/🔄/🔍)
+- **Toss Flow**: "🆕 Create Your Message" with journey emphasis
+- **Found Flow**: "🔍 Bottle Found!" with "🔄 Add Message & Retoss" option
 
-### Database Schema
+**Technical Implementation**:
+- Unified scanner with smart routing based on bottle database status
+- Enhanced bottle journey visualization with action type distinction  
+- Comprehensive mock data for testing all interaction patterns
+- Consistent terminology across all user-facing elements
+
+### 🎯 **Terminology Standards**
+```
+Actions:
+🆕 CREATE  = Start fresh bottle (new bottle → your first message)
+🔍 FIND    = Discover existing bottle (someone else's bottle)
+🔄 RETOSS  = Add to found bottle (continue its journey)
+
+User Interface:
+- Home: "Scan Bottle" (smart routing)
+- Profile Stats: "Bottles Created" vs "Bottles Found"  
+- Profile Tabs: Created / Found / All Conversations
+- Journey Steps: CREATE (🆕) / RETOSS (🔄) / FIND replies (🔍)
+- Flow Screens: "Create Your Message" vs "Add Your Message"
+```
+
+### 🚧 **Current Features**
+
+#### **Smart Unified Scanning**
+- Single entry point for all bottle interactions
+- Automatic detection of bottle status (new vs existing)
+- Seamless routing to appropriate flow (CREATE vs FIND)
+
+#### **Enhanced Profile System**
+- **Three main tabs:**
+  - 🆕 **Bottles Created**: Shows bottles you started
+  - 🔍 **Bottles Found**: Shows bottles you discovered & retossed  
+  - 💬 **All Conversations**: Combined view of all your bottle interactions
+
+#### **Rich Journey Visualization**
+- **Nested conversation threads** with expandable replies
+- **Clear visual distinction** between CREATE, RETOSS, and FIND interactions
+- **Timeline format** showing bottle's path around the world
+- **Mock conversation data** demonstrating international bottle journeys
+
+#### **Test Data & Development**
+- Test bottles with realistic conversation examples
+- International journey scenarios (NYC→London→Tokyo→Bali)
+- Consistent mock data across all screens
+- Perfect for demonstrating app functionality
+
+### 🎮 **Demo Experience**
+1. **Home Screen**: Tap "Scan Bottle" 
+2. **Smart Routing**: Choose Test Bottle 1/2/3
+3. **CREATE Flow**: If bottle doesn't exist in DB
+4. **FIND Flow**: If bottle exists with conversations
+5. **Profile**: View organized bottle history with nested conversations
+
+### 🔄 **Next Development Priorities**
+
+#### **Phase 1: User Authentication** (Next)
+- User accounts and login system
+- Real bottle ownership tracking  
+- Personal bottle statistics
+- User profiles with avatars
+
+#### **Phase 2: Real-time Features**
+- Live notifications for bottle interactions
+- Real-time reply system integration
+- Push notifications for new finds
+- Live conversation updates
+
+#### **Phase 3: Social Features**  
+- Achievement badges and milestones
+- Bottle sharing and social discovery
+- User following and friend systems
+- Leaderboards and community features
+
+#### **Phase 4: Advanced Features**
+- Advanced analytics and insights
+- Bottle journey predictions
+- AI-powered content moderation
+- Premium features and monetization
+
+## Technical Implementation Notes
+
+### **Database Schema**
 ```sql
--- Core bottles table
-bottles (id, status, lat, lon, message, photo_url, creator_id, created_at, updated_at)
-
--- Event tracking for real-time updates  
-bottle_events (bottle_id, type, lat, lon, created_at)
-
--- User profiles (prepared for auth)
-public_profiles (id, created_at, updated_at)
+bottles: id, password_hash, message, photo_url, status, created_at, location
+bottle_events: id, bottle_id, event_type, message, photo_url, location, created_at
 ```
 
-### Edge Functions
-- **claim_or_toss_bottle**: Handles complete bottle lifecycle
-- **find_bottle**: Marks bottles as found (prepared for future use)
-- **Anonymous access**: JWT verification disabled via config.toml
+### **Key Components**
+- **UnifiedQRScanner**: Smart bottle detection and routing
+- **EnhancedBottleJourney**: Nested conversation visualization  
+- **Profile System**: Organized bottle history with clear categorization
 
-### Development Tools
-- **Test lifecycle button**: Uses static UUID for state testing
-- **Create new bottle button**: Generates random bottles
-- **Real-time debugging**: Visual feedback for all operations
+### **Development Patterns**
+- **Consistent naming** throughout all user-facing text
+- **Smart routing** based on bottle database status
+- **Mock data** for comprehensive testing without auth
+- **Modular components** for easy feature expansion
 
-## Current Status: MILESTONE 4 COMPLETE ✅
+### **Testing Strategy**
+- Use Test Bottles 1, 2, 3 for development
+- Fresh database state for CREATE flow testing
+- Existing bottles for FIND/RETOSS flow testing
+- Cross-screen navigation validation
 
-**All core functionality is working:**
-- ✅ Interactive map with smooth filtering
-- ✅ Real-time bottle updates without app restart
-- ✅ Complete bottle lifecycle (claim/toss/find/re-toss)
-- ✅ Cross-platform performance optimization
-- ✅ Anonymous edge function access
-- ✅ Development testing tools
-- ✅ Pin visibility and prioritization
+---
 
-**Ready for next phase**: Production polish, user authentication, and advanced features. 
+**Status**: Milestone 7 Complete - Ready for user authentication phase
+**Next Focus**: Real user accounts and bottle ownership tracking 
+
+### **Milestone 8: Bottle Trail Map System** ✅ **COMPLETE**
+**Objective**: Show permanent markers on the map for every bottle action, creating a visual trail of the bottle's journey.
+
+**Key Features**:
+- **Permanent Trail Markers**: Each CREATE/RETOSS/FIND action leaves a permanent marker on the map
+- **Action-Specific Styling**: 
+  - 🆕 **CREATE**: Green markers (#4CAF50) - where bottles begin their journey
+  - 🔄 **RETOSS**: Blue markers (#2196F3) - where bottles continue their journey  
+  - 🔍 **FIND**: Orange markers (#FF9800) - where bottles were discovered
+- **Smart Filtering**: Filter by action type (All/Created/Retossed/Found)
+- **Trail Visualization**: See complete bottle journeys across the world
+
+**Technical Implementation**:
+- `useBottles` hook now fetches complete event history from `bottle_events` table
+- `BottleTrailMarker` interface for rich marker data with action types
+- Map markers with proper layering (zIndex) and opacity for visual hierarchy
+- Compatible with both `event_type`/`type` and `message`/`text` field variations
+- Real-time updates via Supabase subscriptions for both bottles and events
+
+**Database Schema Support**:
+```sql
+bottles: id, password_hash, message, photo_url, status, lat, lon, created_at
+bottle_events: id, bottle_id, event_type, lat, lon, message, photo_url, created_at
+```
+
+**Map Legend**:
+- Green dots: 🆕 Created (where bottles started)
+- Blue dots: 🔄 Retossed (where bottles continued) 
+- Orange dots: 🔍 Found (where bottles were discovered)
+
+---
+
+## Next Development Phase
+
+### **Phase 2: User Authentication & Ownership**
+**Objective**: Real user accounts with bottle ownership tracking and personalized features.
+
+**Planned Features**:
+- User registration and authentication
+- Personal bottle ownership and tracking
+- Real user profile system replacing mock data
+- Push notifications for new finds
+- Live conversation updates
+
+#### **Phase 3: Social Features**  
+- Achievement badges and milestones
+- Bottle sharing and social discovery
+- User following and friend systems
+- Leaderboards and community features
+
+#### **Phase 4: Advanced Features**
+- Advanced analytics and insights
+- Bottle journey predictions
+- AI-powered content moderation
+- Premium features and monetization
+
+## Technical Implementation Notes
+
+### **Database Schema**
+```sql
+bottles: id, password_hash, message, photo_url, status, created_at, location
+bottle_events: id, bottle_id, event_type, message, photo_url, location, created_at
+```
+
+### **Key Components**
+- **UnifiedQRScanner**: Smart bottle detection and routing
+- **EnhancedBottleJourney**: Nested conversation visualization  
+- **Profile System**: Organized bottle history with clear categorization
+- **Trail Map System**: Complete bottle journey visualization with permanent markers
+
+### **Development Patterns**
+- **Consistent naming** throughout all user-facing text
+- **Smart routing** based on bottle database status
+- **Mock data** for comprehensive testing without auth
+- **Modular components** for easy feature expansion
+- **Trail visualization** showing complete bottle histories on map
+
+### **Testing Strategy**
+- Use Test Bottles 1, 2, 3 for development
+- Fresh database state for CREATE flow testing
+- Existing bottles for FIND/RETOSS flow testing
+- Cross-screen navigation validation
+- Trail map testing with multiple bottle interactions
+
+---
+
+**Status**: Milestone 8 Complete - Bottle Trail Map System Implemented
+**Next Focus**: Real user accounts and bottle ownership tracking
+
+### **Milestone 9: Sea Green Theme & Mysterious Maritime UI** ✅ **COMPLETE**
+**Objective**: Transform the app's visual identity from playful baby blue to mysterious sea green with poetic nautical theming.
+
+**Inspiration**: Bottled app's cohesive design system, but with sea green palette and mysterious/poetic tone instead of playful.
+
+**Key Features**:
+- **Sea Green Color Palette**: 
+  - Primary: Deep sea greens (#009688, #00897B, #00796B)
+  - Secondary: Ocean blues for accents
+  - Accent colors: Treasure gold, coral reef, pearl white, **mustardy sea yellow (#D4AF37)**
+- **Mysterious Maritime Copy**: 
+  - Replace "matey" with "voyager," "wanderer," "sea keeper"
+  - Poetic language: "whispers," "vessels," "ancient conversations"
+  - Nautical terminology without heavy pirate accent
+- **Enhanced Visual Elements**:
+  - SeaCreatureMascot component (octopus, turtle, jellyfish, seahorse)
+  - **Flush bottom navigation bar** with rounded top corners matching mockup
+  - **Full-screen green background** extending behind status bar
+  - **Transparent Nyma mascot** floating seamlessly in ocean
+  - **Properly positioned scan button** above navigation bar
+  - **Enhanced header** with larger, bold "Your Message in a Bottle" title
+  - Comprehensive theme system with typography, spacing, shadows
+  - Ocean-inspired gradients and shadows
+
+**Technical Implementation**:
+- `src/constants/theme.ts`: Complete design system with Colors, Typography, Spacing, BorderRadius, Shadows
+- `src/components/SeaCreatureMascot.tsx`: Animated sea creature mascot component
+- **Flush TabBar component**: Bottom navigation flush to screen with rounded top corners
+- **Full-screen layout**: Green background extends to entire screen including status bar
+- **Transparent Nyma**: Using `nyma_mascot-removebg.png` for seamless ocean integration
+- **Mockup-perfect spacing**: Button and navigation positioning matches design exactly
+- React Native compatible font weights and style types
+
+**Design Philosophy**:
+- **Mysterious but not dark**: Elegant sea greens with light backgrounds
+- **Poetic but not pretentious**: Nautical language that feels natural
+- **Maritime but not pirate**: Ocean-inspired without heavy pirate theming
+- **Cohesive visual hierarchy**: Consistent spacing, typography, and color usage
+- **Clean and focused**: Minimal homepage with clear call-to-action
+- **Mockup-perfect**: Exact match to provided design specifications
+
+**Final Status**:
+- ✅ Clean homepage with transparent Nyma floating on ocean background
+- ✅ Flush bottom navigation with rounded top corners and mustardy yellow accents
+- ✅ Full-screen green background extending behind status bar
+- ✅ Properly positioned scan button above navigation bar
+- ✅ Enhanced header with larger, bold title in mustardy yellow
+- ✅ Floating animation for Nyma
+- ✅ Perfect spacing and layout matching mockup exactly
+
+---
+
+## Next Development Phase
+
+### **Phase 2: Complete UI Transformation**
+**Objective**: Apply the new sea green theme across all screens and components.
+
+**Planned Updates**:
+- Update all remaining screens (Profile, Explore, Toss, Found, Scanner)
+- Apply theme to bottle journey components
+- Update map markers with sea green styling
+- Enhance loading states and animations
+- Create consistent button and card components
+
+### **Phase 3: User Authentication & Ownership**
+**Objective**: Real user accounts with bottle ownership tracking and personalized features.
+
+**Planned Features**:
+- User registration and authentication
+- Personal bottle ownership and tracking
+- Real user profile system replacing mock data
+- Push notifications for new finds
+- Live conversation updates
+
+#### **Phase 4: Advanced Features**
+- Advanced analytics and insights
+- Bottle journey predictions
+- AI-powered content moderation
+- Premium features and monetization

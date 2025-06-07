@@ -1,115 +1,79 @@
 import React from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import { View, Text, StyleSheet, ImageBackground, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Link } from 'expo-router';
+import { Colors, Typography, Spacing } from '../../src/constants/theme';
 
 export default function HomeScreen() {
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.content}>
-        <Text style={styles.title}>YMIB</Text>
-        <Text style={styles.subtitle}>Your Message in a Bottle</Text>
-        
-        <View style={styles.actionsContainer}>
-          <Link href="/toss" asChild>
-            <Pressable style={[styles.actionButton, styles.tossButton]}>
-              <Text style={styles.actionIcon}>🍾</Text>
-              <Text style={styles.actionTitle}>Toss Your Bottle!</Text>
-              <Text style={styles.actionDescription}>
-                Add your message and photo to a bottle
-              </Text>
-            </Pressable>
-          </Link>
-          
-          <Link href="/found" asChild>
-            <Pressable style={[styles.actionButton, styles.foundButton]}>
-              <Text style={styles.actionIcon}>🔍</Text>
-              <Text style={styles.actionTitle}>Found a Bottle!</Text>
-              <Text style={styles.actionDescription}>
-                Discover what's inside and continue the journey
-              </Text>
-            </Pressable>
-          </Link>
+    <ImageBackground 
+      source={require('../../images/homepage_BG_new.png')} 
+      style={styles.container}
+      resizeMode="cover"
+    >
+      <SafeAreaView style={styles.safeArea}>
+        {/* Header with YMIB Logo - moved to top */}
+        <View style={styles.header}>
+          <Image 
+            source={require('../../images/ymib.png')}
+            style={styles.headerLogo}
+            resizeMode="contain"
+          />
         </View>
-        
-        <View style={styles.exploreHint}>
-          <Text style={styles.hintText}>
-            🗺️ Check the Explore tab to see bottles on the map
+
+        {/* Main Content */}
+        <View style={styles.content}>
+          <Text style={styles.subtitle}>Send your thoughts across the digital seas</Text>
+          <Text style={styles.description}>
+            Scan QR codes on physical bottles to join the global message exchange
           </Text>
         </View>
-      </View>
-    </SafeAreaView>
+      </SafeAreaView>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+  },
+  safeArea: {
+    flex: 1,
+  },
+  header: {
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.md, // Slightly more padding to avoid notch
+    alignItems: 'center',
+    paddingBottom: Spacing.lg,
+  },
+  headerLogo: {
+    width: 600, // Much bigger - increased from 300
+    height: 150, // Much bigger - increased from 80
   },
   content: {
     flex: 1,
-    padding: 20,
     justifyContent: 'center',
-  },
-  title: {
-    fontSize: 48,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    color: '#2196F3',
-    marginBottom: 8,
+    alignItems: 'center',
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: 120, // Account for the new tab bar height
   },
   subtitle: {
-    fontSize: 18,
+    fontSize: Typography.sizes.xl,
+    color: Colors.text.inverse,
     textAlign: 'center',
-    color: '#666',
-    marginBottom: 60,
+    fontWeight: Typography.weights.bold,
+    marginBottom: Spacing.lg,
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
-  actionsContainer: {
-    gap: 20,
-    marginBottom: 40,
-  },
-  actionButton: {
-    padding: 24,
-    borderRadius: 16,
-    alignItems: 'center',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
-  tossButton: {
-    backgroundColor: '#2196F3',
-  },
-  foundButton: {
-    backgroundColor: '#4CAF50',
-  },
-  actionIcon: {
-    fontSize: 32,
-    marginBottom: 8,
-  },
-  actionTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 4,
-  },
-  actionDescription: {
-    fontSize: 14,
-    color: '#fff',
-    opacity: 0.9,
+  description: {
+    fontSize: Typography.sizes.md,
+    color: Colors.text.secondary,
     textAlign: 'center',
-  },
-  exploreHint: {
-    padding: 16,
-    backgroundColor: '#f5f5f5',
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  hintText: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
+    fontWeight: Typography.weights.medium,
+    lineHeight: Typography.lineHeights.relaxed * Typography.sizes.md,
+    textShadowColor: 'rgba(0, 0, 0, 0.2)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 1,
   },
 }); 
