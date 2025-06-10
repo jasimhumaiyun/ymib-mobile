@@ -67,7 +67,13 @@ src/
 - Add proper error handling for all async operations
 - Include loading states for all async UI components
 - Add proper TypeScript error boundaries
-- If we changed any functionality, remember to either replace the old code/logic or delete the old code/logic and implement new one. rememberwe need our codebase to be super clean and lean. However we can't break anything and keep the logic as we decided.
+- **CRITICAL**: Always update PROJECT_CONTEXT.md when making significant changes
+- **CRITICAL**: Remove duplicate code, interfaces, and types immediately
+- **CRITICAL**: Clean up debug console.log statements before committing
+- **CRITICAL**: Keep codebase clean and lean - no dead code or unused imports
+- **CRITICAL**: When changing functionality, replace old logic completely, don't leave orphaned code
+- **CRITICAL**: Do periodic code quality audits to catch technical debt early
+- **CRITICAL**: Never delete core application logic without explicit confirmation
 
 ### Performance
 - Optimize images and assets

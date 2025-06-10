@@ -5,16 +5,9 @@ serve(async (req) => {
   try {
     const { id, password, message, photoUrl, lat, lon, finderName, tosserName } = await req.json();
     
-    console.log('🔥 RECEIVED REQUEST:', { id, password, message, photoUrl, lat, lon, finderName, tosserName });
-    console.log('🔥 MESSAGE ANALYSIS:', { 
-      message, 
-      startsWithReply: message && message.startsWith("REPLY:"),
-      messageType: typeof message,
-      messageLength: message ? message.length : 0
-    });
+    // Process bottle claim or toss request
     
     if (!id || !password || lat === undefined || lon === undefined) {
-      console.log('Missing required fields');
       return new Response("Missing required fields: id, password, lat, lon", { status: 400 });
     }
 
@@ -30,11 +23,8 @@ serve(async (req) => {
       .eq("id", id)
       .maybeSingle();
 
-    console.log('Fetch result:', { bottle, fetchError });
-
     // Case 1: Bottle doesn't exist - create new one (Toss flow)
     if (!bottle) {
-      console.log('Creating new bottle');
       const { data, error } = await client
         .from("bottles")
         .insert({
@@ -92,21 +82,7 @@ serve(async (req) => {
     const newStatus = isReToss ? "adrift" : "found";
     const eventType = isReToss ? "cast_away" : "found";
 
-    console.log('🔥 ACTION TYPE ANALYSIS:', { 
-      message, 
-      messageUndefined: message === undefined,
-      messageStartsWithReply: message && message.startsWith("REPLY:"),
-      isReply, 
-      isReToss, 
-      newStatus, 
-      eventType, 
-      messageProvided: message !== undefined 
-    });
-    console.log('🔥 WILL CREATE EVENT:', { 
-      event_type: eventType, 
-      message: isReToss ? (message || "Continuing the journey...") : message,
-      finalMessage: isReToss ? (message || "Continuing the journey...") : message
-    });
+    // Determined action type and event type
 
     // Update the bottle with new message/photo and location
     const updateData: any = {
@@ -154,15 +130,11 @@ serve(async (req) => {
       eventData.tosser_name = tosserName || finderName || 'Anonymous';
     }
 
-    console.log('🔥 INSERTING EVENT DATA:', eventData);
-    
     const { error: eventError } = await client.from("bottle_events").insert(eventData);
     
     if (eventError) {
-      console.error('🔥 FAILED TO CREATE EVENT:', eventError);
+      console.error('Failed to create event:', eventError);
       // Don't fail the whole operation for event logging
-    } else {
-      console.log('🔥 EVENT CREATED SUCCESSFULLY');
     }
     
     return Response.json({ 

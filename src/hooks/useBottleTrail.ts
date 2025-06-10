@@ -2,21 +2,7 @@ import { useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppState } from 'react-native';
-
-export interface BottleTrailMarker {
-  id: string; // Unique ID for this marker (bottle_id + event_id)
-  bottleId: string; // Original bottle ID
-  actionType: 'created' | 'found' | 'retossed'; // Type of action
-  status: 'adrift' | 'found'; // Current bottle status (for reference)
-  lat: number;
-  lon: number;
-  message: string;
-  photo_url?: string;
-  created_at: string;
-  event_id: string; // For database event tracking
-  tosser_name?: string;
-  finder_name?: string;
-}
+import { BottleTrailMarker } from '../types/bottle';
 
 export function useBottleTrail(isMapActive: boolean = true) {
   const qc = useQueryClient();
@@ -90,7 +76,6 @@ export function useBottleTrail(isMapActive: boolean = true) {
   // Smart polling - refresh on map open + every 5 minutes if constantly open
   useEffect(() => {
     if (!isMapActive) {
-      console.log('⏸️ Map not active, skipping polling');
       return;
     }
 

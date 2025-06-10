@@ -49,7 +49,7 @@ export default function ChatScreen() {
   const { data: chatData, isLoading, error, refetch } = useQuery({
     queryKey: ['chat', bottleId],
     queryFn: async (): Promise<{ bottle: BottleData; messages: ChatMessage[] }> => {
-      console.log('💬 Fetching chat data for bottle:', bottleId);
+      // Fetching chat data for bottle
       
       // Get bottle data
       const { data: bottle, error: bottleError } = await supabase
@@ -111,7 +111,7 @@ export default function ChatScreen() {
   // Send reply mutation
   const sendReplyMutation = useMutation({
     mutationFn: async ({ message, senderName }: { message: string; senderName: string }) => {
-      console.log('💬 Sending reply to bottle:', bottleId);
+      // Sending reply to bottle
       
       const response = await fetch(`${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/find_bottle`, {
         method: 'POST',
@@ -135,7 +135,7 @@ export default function ChatScreen() {
       return response.json();
     },
     onSuccess: () => {
-      console.log('✅ Reply sent successfully');
+              // Reply sent successfully
       setNewMessage('');
       // Refresh chat data
       queryClient.invalidateQueries({ queryKey: ['chat', bottleId] });

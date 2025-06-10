@@ -2,19 +2,7 @@ import { useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppState } from 'react-native';
-
-export interface BottleTrailMarker {
-  id: string; // Unique ID for this marker (bottle_id + event_id)
-  bottleId: string; // Original bottle ID
-  actionType: 'created' | 'found' | 'retossed'; // Type of action
-  status: 'adrift' | 'found'; // Current bottle status (for reference)
-  lat: number;
-  lon: number;
-  message: string;
-  photo_url?: string;
-  created_at: string;
-  event_id?: string; // For database event tracking
-}
+import { BottleTrailMarker } from '../types/bottle';
 
 export function useBottles(isMapActive: boolean = true) {
   const qc = useQueryClient();
@@ -23,7 +11,7 @@ export function useBottles(isMapActive: boolean = true) {
   const query = useQuery({
     queryKey: ['bottles-trail'],
     queryFn: async (): Promise<BottleTrailMarker[]> => {
-      console.log('🗺️ Fetching bottle trail data from database...');
+      // Fetching bottle trail data from database
       
       const markers: BottleTrailMarker[] = [];
       
@@ -44,7 +32,7 @@ export function useBottles(isMapActive: boolean = true) {
           .order('created_at', { ascending: true });
         
         if (eventsError) {
-          console.error('❌ Error fetching events for bottle', bottle.id, eventsError);
+          console.error('Error fetching events for bottle', bottle.id, eventsError);
           // If events table query fails, just use the bottle data as CREATED
           markers.push({
             id: `${bottle.id}-original`,
@@ -66,8 +54,6 @@ export function useBottles(isMapActive: boolean = true) {
             const eventType = event.event_type;
             const eventMessage = event.message || 'No message';
             
-            console.log(`🔍 Processing event for bottle ${bottle.id.slice(0, 8)}: type=${eventType}, message="${eventMessage.slice(0, 50)}..."`);
-            
             if (eventType === 'cast_away') {
               let actionType: 'created' | 'found' | 'retossed';
               
@@ -79,8 +65,6 @@ export function useBottles(isMapActive: boolean = true) {
               } else {
                 actionType = 'retossed'; // Subsequent cast_away events are RETOSSED (blue)
               }
-              
-              console.log(`🔍 Creating ${actionType} marker for bottle ${bottle.id.slice(0, 8)}`);
               markers.push({
                 id: `${bottle.id}-${event.id || index}`, // Fallback to index if event.id is missing
                 bottleId: bottle.id,
@@ -95,7 +79,6 @@ export function useBottles(isMapActive: boolean = true) {
               });
             } else if (eventType === 'found') {
               // EVERY found event creates a green marker, including replies
-              console.log(`🔍 Creating found marker for bottle ${bottle.id.slice(0, 8)}`);
               markers.push({
                 id: `${bottle.id}-${event.id || index}`, // Fallback to index if event.id is missing
                 bottleId: bottle.id,
@@ -126,7 +109,7 @@ export function useBottles(isMapActive: boolean = true) {
         }
       }
       
-      console.log(`🗺️ Created ${markers.length} trail markers from ${bottles.length} bottles`);
+      // Created trail markers from bottles
       return markers;
     }
   });
@@ -134,11 +117,8 @@ export function useBottles(isMapActive: boolean = true) {
   // Smart polling - refresh on map open + every 5 minutes if constantly open
   useEffect(() => {
     if (!isMapActive) {
-      console.log('⏸️ Map not active, skipping polling');
       return;
     }
-
-    console.log('🔄 Map opened - refreshing bottle trail...');
     // Immediate refresh when map opens
     qc.invalidateQueries({ queryKey: ['bottles-trail'] });
     
@@ -150,7 +130,6 @@ export function useBottles(isMapActive: boolean = true) {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'bottles' },
         (payload: any) => {
-          console.log('🔥 Real-time event received:', payload.eventType);
           qc.invalidateQueries({ queryKey: ['bottles-trail'] });
         }
       )
@@ -158,31 +137,22 @@ export function useBottles(isMapActive: boolean = true) {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'bottle_events' },
         (payload: any) => {
-          console.log('🔥 Real-time bottle event received:', payload.eventType);
           qc.invalidateQueries({ queryKey: ['bottles-trail'] });
         }
       )
-      .subscribe((status) => {
-        console.log('📡 Real-time status:', status);
-        if (status === 'SUBSCRIBED') {
-          console.log('✅ Real-time working! No need for polling.');
-          return;
-        }
-      });
+      .subscribe();
 
     // Fallback: Refresh every 5 minutes only if map stays open
-    const pollInterval = setInterval(() => {
-      if (AppState.currentState === 'active') {
-        console.log('🔄 5-minute refresh while map is open...');
-        qc.invalidateQueries({ queryKey: ['bottles-trail'] });
-      }
-    }, 300000); // 5 minutes = 300,000ms
-      
-    return () => { 
-      console.log('🛑 Cleaning up bottles trail polling');
-      clearInterval(pollInterval);
-      supabase.removeChannel(channel); 
-    };
+          const pollInterval = setInterval(() => {
+        if (AppState.currentState === 'active') {
+          qc.invalidateQueries({ queryKey: ['bottles-trail'] });
+        }
+      }, 300000); // 5 minutes = 300,000ms
+        
+      return () => { 
+        clearInterval(pollInterval);
+        supabase.removeChannel(channel); 
+      };
   }, [qc, isMapActive]);
 
   return query;

@@ -42,7 +42,7 @@ export default function TossScreen() {
     if (identity) {
       // Pre-fill the custom name field with current name
       setCustomUserName(identity.userName);
-      console.log('✅ Device identity loaded:', identity);
+      // Device identity loaded
     }
   }, [identity]);
 
@@ -245,7 +245,7 @@ export default function TossScreen() {
       }
 
       const result = await response.json();
-      console.log(`✅ Bottle ${isReToss ? 'retossed' : 'created'} successfully:`, result);
+      // Bottle operation completed successfully
 
       // Animation will transition to success automatically after 5 seconds
     } catch (error) {

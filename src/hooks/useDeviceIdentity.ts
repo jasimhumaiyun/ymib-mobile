@@ -38,7 +38,7 @@ export function useDeviceIdentity() {
 
   const initializeIdentity = async () => {
     try {
-      console.log('🔍 Initializing device identity...');
+      // Initializing device identity
       
       // Check if we already have a device identity
       const existingDeviceId = await AsyncStorage.getItem('deviceId');
@@ -51,14 +51,14 @@ export function useDeviceIdentity() {
       if (!deviceId) {
         deviceId = generateDeviceId();
         await AsyncStorage.setItem('deviceId', deviceId);
-        console.log('🆔 Generated new device ID:', deviceId);
+                  // Generated new device ID
       }
       
       // Generate anonymous name if user hasn't set one
       if (!userName) {
         userName = generateAnonymousName();
         await AsyncStorage.setItem('userName', userName);
-        console.log('👤 Generated anonymous name:', userName);
+                  // Generated anonymous name
       }
       
       const deviceIdentity: DeviceIdentity = {
@@ -68,7 +68,7 @@ export function useDeviceIdentity() {
       };
       
       setIdentity(deviceIdentity);
-      console.log('✅ Device identity initialized:', deviceIdentity);
+              // Device identity initialized successfully
     } catch (error) {
       console.error('❌ Error initializing device identity:', error);
       

@@ -18,7 +18,7 @@ export function useConversations() {
   return useQuery({
     queryKey: ['conversations'],
     queryFn: async (): Promise<Conversation[]> => {
-      console.log('💬 Fetching active conversations...');
+      // Fetching active conversations
       
       // Get all bottles that have replies (found events with REPLY: messages)
       const { data: bottlesWithReplies, error } = await supabase
@@ -90,7 +90,7 @@ export function useConversations() {
         };
       });
 
-      console.log(`💬 Found ${conversations.length} active conversations`);
+      // Found active conversations
       return conversations;
     },
     staleTime: 30000, // Cache for 30 seconds

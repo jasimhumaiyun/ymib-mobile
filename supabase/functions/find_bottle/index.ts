@@ -14,14 +14,7 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    // Get auth user if any
-    const authHeader = req.headers.get('Authorization');
-    let finder_id = null;
-    
-    if (authHeader) {
-      const { data: { user } } = await client.auth.getUser(authHeader.replace('Bearer ', ''));
-      finder_id = user?.id ?? null;
-    }
+    // Note: Could track finder_id here if we had user authentication
 
     // Try to fetch existing bottle
     const { data: bottle } = await client
