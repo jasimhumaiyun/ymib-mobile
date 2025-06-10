@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useDeviceIdentity } from '../src/hooks/useDeviceIdentity';
 import { supabase } from '../src/lib/supabase';
 import { Colors, Typography, Spacing, BorderRadius, Shadows } from '../src/constants/theme';
 import { Ionicons } from '@expo/vector-icons';
@@ -13,12 +13,12 @@ type TossStep = 'compose' | 'tossing' | 'success';
 
 export default function TossScreen() {
   const params = useLocalSearchParams();
+  const { identity, isLoading: identityLoading, updateUserName, getUserInfo } = useDeviceIdentity();
+  
   const [step, setStep] = useState<TossStep>('compose');
   const [message, setMessage] = useState('');
   const [photo, setPhoto] = useState<string | null>(null);
-  const [userName, setUserName] = useState('');
-  
-
+  const [customUserName, setCustomUserName] = useState('');
   const [showNameField, setShowNameField] = useState(false);
   const [loading, setLoading] = useState(false);
   const [bottleId, setBottleId] = useState<string>('');
@@ -35,10 +35,16 @@ export default function TossScreen() {
       setBottleId(params.bottleId as string);
       setBottlePassword(params.bottlePassword as string);
     }
-    
-    // Check if user has a saved name (simulating profile check)
-    checkUserProfile();
   }, [params]);
+
+  // Check if user wants to customize their name
+  useEffect(() => {
+    if (identity) {
+      // Pre-fill the custom name field with current name
+      setCustomUserName(identity.userName);
+      console.log('✅ Device identity loaded:', identity);
+    }
+  }, [identity]);
 
   // Start bottle animation when tossing step begins
   useEffect(() => {
@@ -46,28 +52,6 @@ export default function TossScreen() {
       startBottleAnimation();
     }
   }, [step]);
-
-  const checkUserProfile = async () => {
-    try {
-      const savedName = await AsyncStorage.getItem('userName');
-      console.log('🔍 Saved name from AsyncStorage:', savedName);
-      
-      if (savedName && savedName.trim()) {
-        // User has a profile, don't show name field
-        setUserName(savedName);
-        setShowNameField(false);
-        console.log('✅ User has profile, hiding name field');
-      } else {
-        // No profile, show name field
-        setShowNameField(true);
-        setUserName(''); // Clear any existing name
-        console.log('❌ No profile found, showing name field');
-      }
-    } catch (error) {
-      console.log('Error checking user profile:', error);
-      setShowNameField(true); // Default to showing name field
-    }
-  };
 
   const startBottleAnimation = () => {
     // Reset animations
@@ -182,14 +166,22 @@ export default function TossScreen() {
       return;
     }
 
+    if (!identity) {
+      Alert.alert('Error', 'Device identity not loaded. Please try again.');
+      return;
+    }
+
     setLoading(true);
     setStep('tossing');
 
     try {
-      // Save user name if provided and not already saved
-      if (showNameField && userName.trim()) {
-        await AsyncStorage.setItem('userName', userName.trim());
+      // Update user name if they changed it
+      if (customUserName.trim() && customUserName !== identity.userName) {
+        await updateUserName(customUserName.trim());
       }
+
+      // Get current user info
+      const userInfo = getUserInfo();
 
       // Get location
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -200,48 +192,65 @@ export default function TossScreen() {
         return;
       }
 
-      const { coords } = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
-
-      // Upload photo if provided
+      const location = await Location.getCurrentPositionAsync({});
+      
+      // Upload photo if exists
       let photoUrl = null;
       if (photo) {
         photoUrl = await uploadPhoto(photo);
       }
 
-      // Determine creator name
-      const creatorName = userName.trim() || 'Anonymous';
+      // Determine if this is a retoss or new bottle
+      const isReToss = bottleId && bottlePassword;
 
-      // Call edge function to create the bottle
-      const { data, error } = await supabase.functions.invoke('claim_or_toss_bottle', {
-        body: {
-          id: bottleId,
-          password: bottlePassword,
-          message: message.trim(),
-          photoUrl,
-          tosserName: creatorName,
-          lat: coords.latitude,
-          lon: coords.longitude,
-        },
-      });
-
-      if (error) {
-        Alert.alert('Error', error.message || 'Failed to toss bottle');
-        setStep('compose');
-        return;
+      let response;
+      if (isReToss) {
+        // Retoss existing bottle
+        response = await fetch(`${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/claim_or_toss_bottle`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify({
+            id: bottleId,
+            password: bottlePassword,
+            message: message,
+            photoUrl: photoUrl,
+            lat: location.coords.latitude,
+            lon: location.coords.longitude,
+            tosserName: userInfo.userName,
+          }),
+        });
+      } else {
+        // Create new bottle
+        response = await fetch(`${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/toss_bottle`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify({
+            message: message,
+            photoUrl: photoUrl,
+            lat: location.coords.latitude,
+            lon: location.coords.longitude,
+            creatorName: userInfo.userName,
+          }),
+        });
       }
 
-      // Update bottle ID with the actual generated ID if it was a new bottle
-      if (data?.id) {
-        setBottleId(data.id);
+      if (!response.ok) {
+        throw new Error(`Failed to ${isReToss ? 'retoss' : 'create'} bottle: ${response.status}`);
       }
 
-      // Animation will automatically transition to success
+      const result = await response.json();
+      console.log(`✅ Bottle ${isReToss ? 'retossed' : 'created'} successfully:`, result);
 
+      // Animation will transition to success automatically after 5 seconds
     } catch (error) {
-      console.error('Error tossing bottle:', error);
-      Alert.alert('Error', 'Something went wrong. Please try again.');
+      console.error(`❌ Error ${bottleId ? 'retossing' : 'creating'} bottle:`, error);
+      Alert.alert('Error', `Failed to ${bottleId ? 'retoss' : 'create'} bottle. Please try again.`);
       setStep('compose');
     } finally {
       setLoading(false);
@@ -249,297 +258,322 @@ export default function TossScreen() {
   };
 
   const handleClose = () => {
-    try {
-      if (router.canDismiss()) {
-        router.dismissAll();
-      } else {
-        // Navigate to home tab instead of going back
-        router.replace('/(tabs)');
-      }
-    } catch (error) {
-      console.error('Navigation error:', error);
-      // Fallback: try to navigate to home
-      router.replace('/(tabs)');
+    if (step === 'success') {
+      router.replace('/(tabs)/explore');
+    } else {
+      router.back();
     }
   };
 
   const renderContent = () => {
-    switch (step) {
-      case 'compose':
-        return (
-          <SafeAreaView style={styles.container}>
-            {/* Universal Back to Home Button */}
-            <View style={styles.topBar}>
-              <Pressable style={styles.backButton} onPress={handleClose}>
-                <Text style={styles.backButtonText}>← Home</Text>
+    // Show loading while device identity is being initialized
+    if (identityLoading) {
+      return (
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Initializing...</Text>
+        </View>
+      );
+    }
+
+    if (step === 'compose') {
+      return (
+        <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+          <SafeAreaView style={styles.safeArea}>
+            <View style={styles.header}>
+              <Pressable style={styles.closeButton} onPress={handleClose}>
+                <Ionicons name="close" size={28} color={Colors.text.inverse} />
               </Pressable>
+              <Text style={styles.headerTitle}>
+                {bottleId ? '🔄 Retoss Bottle' : '🍾 Toss a Bottle'}
+              </Text>
             </View>
 
-            <ScrollView style={styles.contentContainer} showsVerticalScrollIndicator={false}>
-              <View style={styles.header}>
-                <Text style={styles.title}>Cast Your Message</Text>
-                <Text style={styles.subtitle}>
-                  Send your thoughts across the digital seas
-                </Text>
-              </View>
-
-              <View style={styles.formSection}>
-                {/* Name Field - Only show if user doesn't have profile */}
-                {showNameField && (
-                  <>
-                    <Text style={styles.sectionTitle}>Your Name (Optional)</Text>
-                    <TextInput
-                      style={styles.nameInput}
-                      placeholder="Enter your name or leave blank for Anonymous"
-                      placeholderTextColor="rgba(255, 255, 255, 0.6)"
-                      value={userName}
-                      onChangeText={setUserName}
-                      maxLength={50}
-                    />
-                    <Text style={styles.fieldNote}>
-                      This will be shown as the creator of this bottle
-                    </Text>
-                  </>
-                )}
-
-                {/* Show current name and option to change it */}
-                {!showNameField && (
-                  <View style={styles.currentNameContainer}>
-                    <Text style={styles.currentNameText}>
-                      Creating as: {userName || 'Anonymous'}
-                    </Text>
-                    <Pressable 
-                      style={styles.changeNameButton}
-                      onPress={async () => {
-                        await AsyncStorage.removeItem('userName');
-                        setUserName('');
-                        setShowNameField(true);
-                      }}
-                    >
-                      <Text style={styles.changeNameText}>Change Name</Text>
-                    </Pressable>
-                  </View>
-                )}
-
-                <Text style={styles.sectionTitle}>Your Message</Text>
-                <TextInput
-                  style={styles.messageInput}
-                  placeholder="What message would you like to send into the world?"
-                  placeholderTextColor="rgba(255, 255, 255, 0.6)"
-                  value={message}
-                  onChangeText={setMessage}
-                  multiline
-                  maxLength={500}
-                  textAlignVertical="top"
-                />
-                <Text style={styles.characterCount}>
-                  {message.length}/500 characters
-                </Text>
-
-                <Text style={styles.sectionTitle}>Add a Photo (Optional)</Text>
-                
-                {photo ? (
-                  <View style={styles.photoContainer}>
-                    <Image source={{ uri: photo }} style={styles.photo} />
-                    <Pressable 
-                      style={styles.changePhotoButton} 
-                      onPress={() => setPhoto(null)}
-                    >
-                      <Text style={styles.changePhotoText}>Remove Photo</Text>
-                    </Pressable>
-                  </View>
-                ) : (
-                  <View style={styles.photoButtons}>
-                    <Pressable style={styles.photoButton} onPress={takePhoto}>
-                      <Ionicons name="camera" size={20} color={Colors.text.primary} />
-                      <Text style={styles.photoButtonText}>Take Photo</Text>
-                    </Pressable>
-                    <Pressable style={styles.photoButton} onPress={pickImage}>
-                      <Ionicons name="image" size={20} color={Colors.text.primary} />
-                      <Text style={styles.photoButtonText}>Choose from Gallery</Text>
-                    </Pressable>
-                  </View>
-                )}
-
-                <View style={styles.bottleInfo}>
-                  <Text style={styles.bottleInfoTitle}>🍾 Bottle Details</Text>
-                  <Text style={styles.bottleInfoText}>
-                    ID: #{bottleId.slice(0, 8)}...
-                  </Text>
-                  <Text style={styles.bottleInfoText}>
-                    Creator: {userName.trim() || 'Anonymous'}
-                  </Text>
-                  <Text style={styles.bottleInfoText}>
-                    This bottle will drift across the digital ocean, waiting to be discovered by other voyagers.
+            <View style={styles.content}>
+              <Text style={styles.sectionTitle}>Your Identity</Text>
+              <View style={styles.identityContainer}>
+                <View style={styles.identityInfo}>
+                  <Text style={styles.identityLabel}>Sailing as:</Text>
+                  <Text style={styles.identityName}>{identity?.userName || 'Loading...'}</Text>
+                  <Text style={styles.identitySubtext}>
+                    {identity?.isAnonymous ? 'Anonymous Voyager' : 'Registered User'}
                   </Text>
                 </View>
-
                 <Pressable 
-                  style={[styles.tossButton, (!message.trim() || loading) && styles.tossButtonDisabled]}
-                  onPress={handleToss}
-                  disabled={!message.trim() || loading}
+                  style={styles.changeNameButton}
+                  onPress={() => setShowNameField(!showNameField)}
                 >
-                  <Text style={styles.tossButtonText}>
-                    🌊 Toss Your Bottle!
+                  <Text style={styles.changeNameText}>
+                    {showNameField ? 'Cancel' : 'Change Name'}
                   </Text>
                 </Pressable>
               </View>
-            </ScrollView>
-          </SafeAreaView>
-        );
 
-      case 'tossing':
-        return (
-          <SafeAreaView style={styles.container}>
-            <View style={styles.animationContainer}>
-              <Text style={styles.animationTitle}>Tossing your bottle...</Text>
-              <Text style={styles.animationSubtitle}>
-                Sending your message into the digital ocean 🌊
-              </Text>
-              
-              {/* Animated Bottle - Using actual bottle image */}
-              <Animated.Image
-                source={require('../images/homepage_bottle.png')}
-                style={[
-                  styles.animatedBottle,
-                  {
-                    transform: [
-                      {
-                        translateY: bottleAnimation.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [300, -400],
-                        }),
-                      },
-                      {
-                        rotate: bottleRotation.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: ['0deg', '1440deg'], // 4 full rotations
-                        }),
-                      },
-                      { scale: bottleScale },
-                    ],
-                  },
-                ]}
+              {showNameField && (
+                <View style={styles.nameFieldContainer}>
+                  <Text style={styles.fieldLabel}>Customize your name:</Text>
+                  <TextInput
+                    style={styles.nameInput}
+                    placeholder="Enter your name..."
+                    placeholderTextColor="rgba(255, 255, 255, 0.6)"
+                    value={customUserName}
+                    onChangeText={setCustomUserName}
+                    maxLength={50}
+                  />
+                  <Text style={styles.fieldNote}>
+                    This name will be shown to others who find your bottles
+                  </Text>
+                </View>
+              )}
+
+              <Text style={styles.sectionTitle}>Your Message</Text>
+              <TextInput
+                style={styles.messageInput}
+                placeholder="What message would you like to send into the world?"
+                placeholderTextColor="rgba(255, 255, 255, 0.6)"
+                value={message}
+                onChangeText={setMessage}
+                multiline
+                maxLength={500}
+                textAlignVertical="top"
               />
-              
-              <Text style={styles.animationNote}>
-                Reading your message while the bottle travels...
+              <Text style={styles.characterCount}>
+                {message.length}/500 characters
               </Text>
-            </View>
-          </SafeAreaView>
-        );
 
-      case 'success':
-        return (
-          <SafeAreaView style={styles.container}>
-            <View style={styles.successContainer}>
-              <Text style={styles.successIcon}>🌊</Text>
-              <Text style={styles.successTitle}>Congratulations!</Text>
-              <Text style={styles.successText}>
-                Your message is now drifting in the open digital sea, waiting to be discovered by fellow voyagers around the world!
-              </Text>
+              <Text style={styles.sectionTitle}>Add a Photo (Optional)</Text>
               
-              <View style={styles.successDetails}>
-                <Text style={styles.successDetailTitle}>Bottle #{bottleId.slice(0, 8)}...</Text>
-                <Text style={styles.successDetailText}>
-                  Creator: {userName.trim() || 'Anonymous'}
-                </Text>
-                <Text style={styles.successDetailText}>
-                  Status: Adrift and ready to be found
-                </Text>
-              </View>
+              {photo ? (
+                <View style={styles.photoContainer}>
+                  <Image source={{ uri: photo }} style={styles.photo} />
+                  <Pressable 
+                    style={styles.changePhotoButton} 
+                    onPress={() => setPhoto(null)}
+                  >
+                    <Text style={styles.changePhotoText}>Remove Photo</Text>
+                  </Pressable>
+                </View>
+              ) : (
+                <View style={styles.photoButtons}>
+                  <Pressable style={styles.photoButton} onPress={takePhoto}>
+                    <Ionicons name="camera" size={20} color={Colors.text.primary} />
+                    <Text style={styles.photoButtonText}>Take Photo</Text>
+                  </Pressable>
+                  <Pressable style={styles.photoButton} onPress={pickImage}>
+                    <Ionicons name="image" size={20} color={Colors.text.primary} />
+                    <Text style={styles.photoButtonText}>Choose from Gallery</Text>
+                  </Pressable>
+                </View>
+              )}
 
-              <View style={styles.reminderBox}>
-                <Text style={styles.reminderTitle}>🍾 Don't Forget!</Text>
-                <Text style={styles.reminderText}>
-                  Remember to toss your actual physical bottle too! Your message is now in both the digital ocean and the real ocean, creating a bridge between worlds.
-                </Text>
-              </View>
+              {bottleId && (
+                <View style={styles.bottleInfo}>
+                  <Text style={styles.bottleInfoTitle}>🔄 Retossing Bottle</Text>
+                  <Text style={styles.bottleInfoText}>
+                    You're continuing this bottle's journey across the digital seas
+                  </Text>
+                </View>
+              )}
 
               <Pressable 
-                style={styles.continueButton} 
-                onPress={handleClose}
+                style={[styles.tossButton, (!message.trim() || loading) && styles.disabledButton]}
+                onPress={handleToss}
+                disabled={!message.trim() || loading}
               >
-                <Text style={styles.continueButtonText}>Continue Exploring</Text>
+                <Text style={styles.tossButtonText}>
+                  {bottleId ? '🌊 Retoss into Ocean' : '🌊 Toss into Ocean'}
+                </Text>
               </Pressable>
             </View>
           </SafeAreaView>
-        );
+        </ScrollView>
+      );
+    }
 
-      default:
-        return null;
+    // ... rest of the render methods stay the same
+    if (step === 'tossing') {
+      const translateY = bottleAnimation.interpolate({
+        inputRange: [0, 1],
+        outputRange: [0, -800],
+      });
+
+      const rotate = bottleRotation.interpolate({
+        inputRange: [0, 1],
+        outputRange: ['0deg', '360deg'],
+      });
+
+      return (
+        <View style={styles.animationContainer}>
+          <View style={styles.animationContent}>
+            <Text style={styles.animationTitle}>
+              {bottleId ? 'Retossing your bottle...' : 'Tossing your bottle...'}
+            </Text>
+            <Text style={styles.animationSubtitle}>
+              Sending your message across the digital seas
+            </Text>
+            
+            <Animated.View
+              style={[
+                styles.bottleContainer,
+                {
+                  transform: [
+                    { translateY },
+                    { rotate },
+                    { scale: bottleScale },
+                  ],
+                },
+              ]}
+            >
+              <Text style={styles.bottleEmoji}>🍾</Text>
+            </Animated.View>
+            
+            <Text style={styles.animationDescription}>
+              {bottleId 
+                ? 'Your bottle continues its journey...' 
+                : 'Your bottle begins its journey...'
+              }
+            </Text>
+          </View>
+        </View>
+      );
+    }
+
+    if (step === 'success') {
+      return (
+        <View style={styles.successContainer}>
+          <View style={styles.successContent}>
+            <Text style={styles.successEmoji}>✨</Text>
+            <Text style={styles.successTitle}>
+              {bottleId ? 'Bottle Retossed!' : 'Bottle Tossed!'}
+            </Text>
+            <Text style={styles.successMessage}>
+              {bottleId 
+                ? 'Your bottle continues its journey across the digital ocean. Someone else might discover it soon!'
+                : 'Your message has been cast into the vast digital ocean. Someone, somewhere, might discover your bottle!'
+              }
+            </Text>
+            
+            <Pressable style={styles.exploreButton} onPress={handleClose}>
+              <Text style={styles.exploreButtonText}>🗺️ Explore the Ocean</Text>
+            </Pressable>
+          </View>
+        </View>
+      );
     }
   };
 
   return (
     <ImageBackground 
       source={require('../images/homepage_BG_new.png')} 
-      style={styles.fullScreen}
+      style={styles.backgroundContainer}
       resizeMode="cover"
     >
-      <Stack.Screen options={{ 
-        presentation: 'modal',
-        headerShown: false 
-      }} />
+      <Stack.Screen options={{ headerShown: false }} />
       {renderContent()}
     </ImageBackground>
   );
 }
 
+// ... existing styles stay the same but add new ones for identity section
 const styles = StyleSheet.create({
-  fullScreen: {
+  backgroundContainer: {
     flex: 1,
   },
   container: {
     flex: 1,
   },
-  topBar: {
+  safeArea: {
+    flex: 1,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontSize: Typography.sizes.lg,
+    color: Colors.text.inverse,
+    fontWeight: Typography.weights.medium,
+  },
+  header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.md,
+    justifyContent: 'space-between',
   },
-  backButton: {
+  closeButton: {
     padding: Spacing.sm,
   },
-  backButtonText: {
-    fontSize: Typography.sizes.md,
+  headerTitle: {
+    fontSize: Typography.sizes.xl,
+    fontWeight: Typography.weights.bold,
     color: Colors.text.inverse,
-    fontWeight: Typography.weights.semibold,
+    flex: 1,
+    textAlign: 'center',
+    marginRight: Spacing.xl + Spacing.sm, // Balance the close button
   },
-  contentContainer: {
+  content: {
     flex: 1,
     paddingHorizontal: Spacing.lg,
-  },
-  header: {
-    alignItems: 'center',
-    marginBottom: Spacing['2xl'],
-  },
-  title: {
-    fontSize: Typography.sizes['3xl'],
-    fontWeight: Typography.weights.bold,
-    color: Colors.text.ocean,
-    textAlign: 'center',
-    marginBottom: Spacing.sm,
-    textShadowColor: 'rgba(255, 255, 255, 0.3)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
-  },
-  subtitle: {
-    fontSize: Typography.sizes.md,
-    color: Colors.text.secondary,
-    textAlign: 'center',
-    fontWeight: Typography.weights.medium,
-  },
-  formSection: {
-    marginBottom: Spacing['4xl'],
+    paddingBottom: Spacing.xl,
   },
   sectionTitle: {
     fontSize: Typography.sizes.lg,
     fontWeight: Typography.weights.semibold,
     color: Colors.text.ocean,
     marginBottom: Spacing.md,
+    marginTop: Spacing.lg,
+  },
+  identityContainer: {
+    backgroundColor: 'rgba(1, 67, 72, 0.8)',
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: Spacing.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    ...Shadows.md,
+  },
+  identityInfo: {
+    flex: 1,
+  },
+  identityLabel: {
+    fontSize: Typography.sizes.sm,
+    color: Colors.text.secondary,
+    marginBottom: Spacing.xs,
+  },
+  identityName: {
+    fontSize: Typography.sizes.lg,
+    fontWeight: Typography.weights.bold,
+    color: Colors.text.inverse,
+    marginBottom: Spacing.xs,
+  },
+  identitySubtext: {
+    fontSize: Typography.sizes.xs,
+    color: Colors.accent.mustardSea,
+    fontWeight: Typography.weights.medium,
+  },
+  changeNameButton: {
+    backgroundColor: 'rgba(212, 175, 55, 0.2)',
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.md,
+  },
+  changeNameText: {
+    color: Colors.accent.mustardSea,
+    fontSize: Typography.sizes.sm,
+    fontWeight: Typography.weights.semibold,
+  },
+  nameFieldContainer: {
+    marginBottom: Spacing.lg,
+  },
+  fieldLabel: {
+    fontSize: Typography.sizes.md,
+    color: Colors.text.ocean,
+    marginBottom: Spacing.sm,
+    fontWeight: Typography.weights.medium,
   },
   nameInput: {
     backgroundColor: 'rgba(1, 67, 72, 0.8)',
@@ -549,13 +583,12 @@ const styles = StyleSheet.create({
     color: Colors.text.inverse,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
-    marginBottom: Spacing.sm,
     ...Shadows.md,
   },
   fieldNote: {
     fontSize: Typography.sizes.xs,
     color: Colors.text.secondary,
-    marginBottom: Spacing.xl,
+    marginTop: Spacing.sm,
     fontStyle: 'italic',
   },
   messageInput: {
@@ -636,27 +669,30 @@ const styles = StyleSheet.create({
     fontSize: Typography.sizes.sm,
     color: Colors.text.inverse,
     opacity: 0.8,
-    lineHeight: Typography.lineHeights.relaxed * Typography.sizes.sm,
-    marginBottom: Spacing.xs,
+    lineHeight: Typography.lineHeights.normal * Typography.sizes.sm,
   },
   tossButton: {
-    backgroundColor: Colors.accent.mustardSea,
+    backgroundColor: Colors.accent.seaweed,
     paddingVertical: Spacing.lg,
     borderRadius: BorderRadius.lg,
     alignItems: 'center',
+    marginTop: Spacing.lg,
     ...Shadows.md,
   },
-  tossButtonDisabled: {
-    opacity: 0.5,
-  },
   tossButtonText: {
-    color: Colors.text.primary,
+    color: Colors.text.inverse,
     fontSize: Typography.sizes.lg,
     fontWeight: Typography.weights.bold,
+  },
+  disabledButton: {
+    opacity: 0.5,
   },
   animationContainer: {
     flex: 1,
     justifyContent: 'center',
+    alignItems: 'center',
+  },
+  animationContent: {
     alignItems: 'center',
     paddingHorizontal: Spacing.lg,
   },
@@ -670,30 +706,33 @@ const styles = StyleSheet.create({
   animationSubtitle: {
     fontSize: Typography.sizes.md,
     color: Colors.text.inverse,
-    opacity: 0.8,
     textAlign: 'center',
-    marginBottom: Spacing['4xl'],
+    opacity: 0.8,
+    marginBottom: Spacing['3xl'],
   },
-  animatedBottle: {
-    width: 120,
-    height: 120,
-    resizeMode: 'contain',
+  bottleContainer: {
+    marginVertical: Spacing['3xl'],
   },
-  animationNote: {
+  bottleEmoji: {
+    fontSize: 80,
+  },
+  animationDescription: {
     fontSize: Typography.sizes.sm,
     color: Colors.text.inverse,
-    opacity: 0.7,
     textAlign: 'center',
-    marginTop: Spacing['4xl'],
     fontStyle: 'italic',
+    marginTop: Spacing['3xl'],
   },
   successContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  successContent: {
+    alignItems: 'center',
     paddingHorizontal: Spacing.lg,
   },
-  successIcon: {
+  successEmoji: {
     fontSize: 80,
     marginBottom: Spacing.xl,
   },
@@ -704,94 +743,24 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: Spacing.lg,
   },
-  successText: {
+  successMessage: {
     fontSize: Typography.sizes.md,
     color: Colors.text.inverse,
-    opacity: 0.9,
     textAlign: 'center',
     lineHeight: Typography.lineHeights.relaxed * Typography.sizes.md,
-    marginBottom: Spacing.xl,
-  },
-  successDetails: {
-    backgroundColor: 'rgba(1, 67, 72, 0.6)',
-    padding: Spacing.lg,
-    borderRadius: BorderRadius.lg,
-    marginBottom: Spacing.lg,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  successDetailTitle: {
-    fontSize: Typography.sizes.lg,
-    fontWeight: Typography.weights.bold,
-    color: Colors.accent.mustardSea,
-    marginBottom: Spacing.sm,
-  },
-  successDetailText: {
-    fontSize: Typography.sizes.sm,
-    color: Colors.text.inverse,
-    opacity: 0.8,
-    marginBottom: Spacing.xs,
-  },
-  reminderBox: {
-    backgroundColor: 'rgba(212, 175, 55, 0.1)',
-    padding: Spacing.lg,
-    borderRadius: BorderRadius.lg,
-    marginBottom: Spacing.xl,
-    borderWidth: 1,
-    borderColor: 'rgba(212, 175, 55, 0.3)',
-  },
-  reminderTitle: {
-    fontSize: Typography.sizes.md,
-    fontWeight: Typography.weights.bold,
-    color: Colors.accent.mustardSea,
-    marginBottom: Spacing.sm,
-    textAlign: 'center',
-  },
-  reminderText: {
-    fontSize: Typography.sizes.sm,
-    color: Colors.text.inverse,
+    marginBottom: Spacing['3xl'],
     opacity: 0.9,
-    textAlign: 'center',
-    lineHeight: Typography.lineHeights.relaxed * Typography.sizes.sm,
   },
-  continueButton: {
+  exploreButton: {
     backgroundColor: Colors.accent.mustardSea,
-    paddingHorizontal: Spacing['2xl'],
+    paddingHorizontal: Spacing.xl,
     paddingVertical: Spacing.lg,
     borderRadius: BorderRadius.lg,
     ...Shadows.md,
   },
-  continueButtonText: {
+  exploreButtonText: {
     color: Colors.text.primary,
     fontSize: Typography.sizes.lg,
     fontWeight: Typography.weights.bold,
-  },
-  currentNameContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: 'rgba(1, 67, 72, 0.6)',
-    padding: Spacing.md,
-    borderRadius: BorderRadius.md,
-    marginBottom: Spacing.xl,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  currentNameText: {
-    fontSize: Typography.sizes.md,
-    color: Colors.text.inverse,
-    fontWeight: Typography.weights.medium,
-  },
-  changeNameButton: {
-    backgroundColor: Colors.accent.mustardSea,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.sm,
-  },
-  changeNameText: {
-    fontSize: Typography.sizes.sm,
-    color: Colors.text.primary,
-    fontWeight: Typography.weights.semibold,
   },
 }); 
