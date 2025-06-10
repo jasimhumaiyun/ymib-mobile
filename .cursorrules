@@ -67,6 +67,7 @@ src/
 - Add proper error handling for all async operations
 - Include loading states for all async UI components
 - Add proper TypeScript error boundaries
+- If we changed any functionality, remember to either replace the old code/logic or delete the old code/logic and implement new one. rememberwe need our codebase to be super clean and lean. However we can't break anything and keep the logic as we decided.
 
 ### Performance
 - Optimize images and assets

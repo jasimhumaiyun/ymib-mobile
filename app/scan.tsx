@@ -5,8 +5,6 @@ import SmartBottleScanner from '../src/components/SmartBottleScanner';
 
 export default function ScanScreen() {
   const handleRouteToToss = (bottleData: { id: string; password: string }) => {
-    console.log('🍾 New bottle detected → Routing to Toss Flow:', bottleData);
-    // Navigate to toss screen with bottle data
     router.push({
       pathname: '/toss',
       params: { bottleId: bottleData.id, bottlePassword: bottleData.password }
@@ -14,11 +12,20 @@ export default function ScanScreen() {
   };
 
   const handleRouteToFound = (bottleData: { id: string; password: string }) => {
-    console.log('🔍 Routing to Found Flow with:', bottleData);
-    // Navigate to found screen with bottle data
     router.push({
       pathname: '/found',
       params: { bottleId: bottleData.id, bottlePassword: bottleData.password }
+    });
+  };
+
+  const handleRouteToRetossDecision = (bottleData: { id: string; password: string }) => {
+    router.push({
+      pathname: '/found',
+      params: { 
+        bottleId: bottleData.id, 
+        bottlePassword: bottleData.password,
+        skipToRetoss: 'true'
+      }
     });
   };
 
@@ -47,6 +54,7 @@ export default function ScanScreen() {
       <SmartBottleScanner
         onRouteToToss={handleRouteToToss}
         onRouteToFound={handleRouteToFound}
+        onRouteToRetossDecision={handleRouteToRetossDecision}
         onCancel={handleCancel}
       />
     </>

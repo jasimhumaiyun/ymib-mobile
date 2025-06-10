@@ -13,13 +13,10 @@ interface BottleJourneyProps {
 }
 
 export default function BottleJourney({ journey }: BottleJourneyProps) {
-  console.log('🍾 BottleJourney received:', journey);
-  
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Bottle Journey</Text>
       {journey.map((step, index) => {
-        console.log(`📸 Step ${index + 1} photo_url:`, step.photo_url);
         return (
           <View key={index} style={styles.pillBox}>
             <Text style={styles.pillHeader}>
@@ -37,8 +34,6 @@ export default function BottleJourney({ journey }: BottleJourneyProps) {
                   <Image 
                     source={{ uri: step.photo_url }} 
                     style={styles.photo}
-                    onLoad={() => console.log('✅ Image loaded:', step.photo_url)}
-                    onError={(error) => console.log('❌ Image error:', error.nativeEvent.error, step.photo_url)}
                   />
                 </View>
               ) : (

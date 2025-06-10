@@ -18,6 +18,7 @@ interface BottleData {
   created_at: string;
   creator_name?: string;
   tosser_name?: string;
+  status: 'adrift' | 'found';
 }
 
 export default function FoundScreen() {
@@ -31,6 +32,7 @@ export default function FoundScreen() {
   const [loading, setLoading] = useState(false);
   const [bottleId, setBottleId] = useState<string>('');
   const [bottlePassword, setBottlePassword] = useState<string>('');
+  const [hasSkippedToRetoss, setHasSkippedToRetoss] = useState(false);
 
   // Animation refs for retoss
   const bottleAnimation = useRef(new Animated.Value(0)).current;
@@ -46,6 +48,19 @@ export default function FoundScreen() {
     
     checkUserProfile();
   }, [params]);
+
+  // Handle skipToRetoss after bottle data is loaded (only once)
+  useEffect(() => {
+    if (params.skipToRetoss === 'true' && bottleData && !hasSkippedToRetoss) {
+
+      // Reset animation values to ensure they're properly initialized
+      bottleAnimation.setValue(0);
+      bottleRotation.setValue(0);
+      bottleScale.setValue(1);
+      setStep('found-options');
+      setHasSkippedToRetoss(true); // Prevent this from running again
+    }
+  }, [params.skipToRetoss, bottleData, hasSkippedToRetoss]);
 
   // Start bottle animation when retossing step begins
   useEffect(() => {
@@ -73,14 +88,14 @@ export default function FoundScreen() {
     try {
       const { data: bottle, error } = await supabase
         .from('bottles')
-        .select('id, message, photo_url, created_at, creator_name, tosser_name')
+        .select('id, message, photo_url, created_at, creator_name, tosser_name, status')
         .eq('id', id)
         .single();
 
       if (error) {
         console.error('Error fetching bottle data:', error);
         Alert.alert('Error', 'Failed to load bottle data');
-        handleClose(); // Use handleClose instead of router.back()
+        handleClose();
         return;
       }
 
@@ -88,16 +103,19 @@ export default function FoundScreen() {
     } catch (error) {
       console.error('Error fetching bottle:', error);
       Alert.alert('Error', 'Something went wrong');
-      handleClose(); // Use handleClose instead of router.back()
+      handleClose();
     }
   };
 
   const startRetossAnimation = () => {
+    // Reset animations
     bottleAnimation.setValue(0);
     bottleRotation.setValue(0);
     bottleScale.setValue(1);
 
+    // 5-second animation sequence (same as original toss)
     Animated.sequence([
+      // Phase 1: Bottle flies up with rotation (3 seconds)
       Animated.parallel([
         Animated.timing(bottleAnimation, {
           toValue: 0.6,
@@ -110,6 +128,7 @@ export default function FoundScreen() {
           useNativeDriver: true,
         }),
       ]),
+      // Phase 2: Fast spinning and disappearing (2 seconds)
       Animated.parallel([
         Animated.timing(bottleAnimation, {
           toValue: 1,
@@ -239,7 +258,7 @@ export default function FoundScreen() {
         action: 'found'
       };
       
-      console.log('🔥 FRONTEND SENDING TO DATABASE:', requestBody);
+
       
       const { data, error } = await supabase.functions.invoke('claim_or_toss_bottle', {
         body: requestBody,
@@ -262,6 +281,11 @@ export default function FoundScreen() {
   };
 
   const handleRetossNow = async () => {
+    // Prevent double-taps
+    if (loading || step === 'retossing') {
+      return;
+    }
+    
     setLoading(true);
     setStep('retossing');
 
@@ -279,18 +303,16 @@ export default function FoundScreen() {
         accuracy: Location.Accuracy.Balanced,
       });
 
-      // Call edge function to retoss
+      // Call edge function to retoss (no message = retoss action)
       const requestBody = {
         id: bottleId,
         password: bottlePassword,
-        message: 'Continuing the journey...',
         tosserName: finderName.trim() || 'Anonymous',
         lat: coords.latitude,
-        lon: coords.longitude,
-        action: 'retoss'
+        lon: coords.longitude
       };
       
-      console.log('🔥 FRONTEND SENDING RETOSS TO DATABASE:', requestBody);
+
       
       const { data, error } = await supabase.functions.invoke('claim_or_toss_bottle', {
         body: requestBody,
@@ -302,7 +324,8 @@ export default function FoundScreen() {
         return;
       }
 
-      // Animation will automatically transition to success
+
+      // Animation will automatically transition to success (handled by useEffect)
     } catch (error) {
       console.error('Error retossing bottle:', error);
       Alert.alert('Error', 'Something went wrong. Please try again.');
@@ -543,20 +566,12 @@ export default function FoundScreen() {
 
               <View style={styles.optionButtons}>
                 <Pressable 
-                  style={styles.chatButton}
-                  onPress={handleGoToChat}
-                >
-                  <Ionicons name="chatbubbles" size={24} color={Colors.text.primary} />
-                  <Text style={styles.chatButtonText}>Go to Bottle Chat</Text>
-                  <Text style={styles.chatButtonSubtext}>Continue the conversation</Text>
-                </Pressable>
-
-                <Pressable 
-                  style={styles.retossButton}
+                  style={[styles.retossButton, loading && styles.disabledButton]}
                   onPress={handleRetossNow}
+                  disabled={loading}
                 >
                   <Ionicons name="refresh" size={24} color={Colors.text.inverse} />
-                  <Text style={styles.retossButtonText}>Retoss Bottle Now</Text>
+                  <Text style={styles.retossButtonText}>Toss Bottle</Text>
                   <Text style={styles.retossButtonSubtext}>Send it back to the ocean</Text>
                 </Pressable>
               </View>
@@ -575,11 +590,12 @@ export default function FoundScreen() {
         return (
           <SafeAreaView style={styles.container}>
             <View style={styles.animationContainer}>
-              <Text style={styles.animationTitle}>Retossing bottle...</Text>
+              <Text style={styles.animationTitle}>Tossing your bottle...</Text>
               <Text style={styles.animationSubtitle}>
-                Sending it back to the digital ocean 🌊
+                Sending your message back into the digital ocean 🌊
               </Text>
               
+              {/* Animated Bottle - Using actual bottle image */}
               <Animated.Image
                 source={require('../images/homepage_bottle.png')}
                 style={[
@@ -595,7 +611,7 @@ export default function FoundScreen() {
                       {
                         rotate: bottleRotation.interpolate({
                           inputRange: [0, 1],
-                          outputRange: ['0deg', '1440deg'],
+                          outputRange: ['0deg', '1440deg'], // 4 full rotations
                         }),
                       },
                       { scale: bottleScale },
@@ -603,6 +619,10 @@ export default function FoundScreen() {
                   },
                 ]}
               />
+              
+              <Text style={styles.animationNote}>
+                Reading your message while the bottle travels...
+              </Text>
             </View>
           </SafeAreaView>
         );
@@ -998,6 +1018,14 @@ const styles = StyleSheet.create({
     width: 120,
     height: 120,
     resizeMode: 'contain',
+  },
+  animationNote: {
+    fontSize: Typography.sizes.sm,
+    color: Colors.text.inverse,
+    opacity: 0.7,
+    textAlign: 'center',
+    marginTop: Spacing['4xl'],
+    fontStyle: 'italic',
   },
   successContainer: {
     flex: 1,

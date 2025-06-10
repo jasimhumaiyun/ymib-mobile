@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, Pressable, ImageBackground, Activit
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useBottles } from '../../src/hooks/useBottles';
+import { useBottleStats } from '../../src/hooks/useBottleStats';
 import { Colors, Typography, Spacing, BorderRadius, Shadows } from '../../src/constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -20,81 +21,39 @@ export default function ProfileScreen() {
   // Use the SAME hook that works for world map - force refresh
   const { data: trailMarkers, isLoading, refetch } = useBottles(true);
   
+  // Use the new stats hook for accurate statistics
+  const { data: statsData, isLoading: statsLoading, refetch: refetchStats } = useBottleStats();
+  
   // Force refresh when profile loads
   useEffect(() => {
     refetch();
-  }, [refetch]);
+    refetchStats();
+  }, [refetch, refetchStats]);
 
-  // Process the trail markers to get stats and recent bottles (same logic as world map)
-  const { stats, bottles } = useMemo(() => {
-    if (!trailMarkers) return { stats: { created: 0, found: 0, retossed: 0 }, bottles: [] };
+  // Use accurate stats from the new hook, fallback to trail markers for recent bottles
+  const stats = statsData || { created: 0, found: 0, retossed: 0 };
+  
+  // Process the trail markers to get recent bottles list
+  const bottles = useMemo(() => {
+    if (!trailMarkers) return [];
 
-    // Count unique bottles by action type
-    const uniqueBottles = new Map();
-    
-    trailMarkers.forEach(marker => {
-      const bottleId = marker.bottleId;
-      
-      if (!uniqueBottles.has(bottleId)) {
-        uniqueBottles.set(bottleId, {
-          id: bottleId,
-          message: marker.message,
-          created_at: marker.created_at,
-          actions: new Set()
-        });
-      }
-      
-      uniqueBottles.get(bottleId).actions.add(marker.actionType);
-      
-      // Update with latest activity
-      if (new Date(marker.created_at) > new Date(uniqueBottles.get(bottleId).created_at)) {
-        uniqueBottles.get(bottleId).created_at = marker.created_at;
-        uniqueBottles.get(bottleId).message = marker.message;
-      }
-    });
-
-    // Calculate stats from unique bottles
-    let createdCount = 0;
-    let foundCount = 0; 
-    let retossedCount = 0;
-
-    uniqueBottles.forEach(bottle => {
-      if (bottle.actions.has('created')) createdCount++;
-      if (bottle.actions.has('found')) foundCount++;
-      if (bottle.actions.has('retossed')) retossedCount++;
-    });
-
-    // Build recent bottles list
+    // Build recent bottles list from trail markers (current bottle states)
     const recentBottles: BottleInteraction[] = [];
     
-    uniqueBottles.forEach(bottle => {
-      let type: 'created' | 'found' | 'retossed' = 'created';
-      
-      // Determine primary action (latest in importance: retossed > found > created)
-      if (bottle.actions.has('retossed')) {
-        type = 'retossed';
-      } else if (bottle.actions.has('found')) {
-        type = 'found';
-      } else if (bottle.actions.has('created')) {
-        type = 'created';
-      }
-      
+    trailMarkers.forEach(marker => {
       recentBottles.push({
-        id: bottle.id,
-        message: bottle.message,
-        type,
-        created_at: bottle.created_at,
-        status: 'adrift'
+        id: marker.bottleId,
+        message: marker.message,
+        type: marker.actionType,
+        created_at: marker.created_at,
+        status: marker.status
       });
     });
 
     // Sort by most recent activity
     recentBottles.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
-    return {
-      stats: { created: createdCount, found: foundCount, retossed: retossedCount },
-      bottles: recentBottles
-    };
+    return recentBottles;
   }, [trailMarkers]);
 
   const handleViewBottles = () => {
@@ -187,7 +146,7 @@ export default function ProfileScreen() {
             <Pressable 
               style={[styles.mainButton, loading && styles.buttonDisabled]}
               onPress={handleViewBottles}
-              disabled={loading || isLoading}
+              disabled={loading || isLoading || statsLoading}
             >
               {loading ? (
                 <ActivityIndicator color={Colors.text.primary} size="small" />

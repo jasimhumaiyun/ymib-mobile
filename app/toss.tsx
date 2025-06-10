@@ -18,10 +18,7 @@ export default function TossScreen() {
   const [photo, setPhoto] = useState<string | null>(null);
   const [userName, setUserName] = useState('');
   
-  // Debug: Log whenever userName changes
-  useEffect(() => {
-    console.log('🔍 userName state changed to:', userName);
-  }, [userName]);
+
   const [showNameField, setShowNameField] = useState(false);
   const [loading, setLoading] = useState(false);
   const [bottleId, setBottleId] = useState<string>('');

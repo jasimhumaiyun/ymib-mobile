@@ -43,10 +43,7 @@ if (fs.existsSync(envPath)) {
   }
 }
 
-// Debug: Log what we found (remove this after testing)
-console.log('Environment variables loaded:', Object.keys(envVars));
-console.log('Supabase URL found:', !!envVars.EXPO_PUBLIC_SUPABASE_URL);
-console.log('Supabase Key found:', !!envVars.EXPO_PUBLIC_SUPABASE_ANON_KEY);
+// Environment variables loaded successfully
 
 export default {
   expo: {

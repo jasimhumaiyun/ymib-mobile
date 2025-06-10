@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, Platform, ImageBackground } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
-import { useBottles, BottleTrailMarker } from '../../src/hooks/useBottles';
+import { useBottleTrail, BottleTrailMarker } from '../../src/hooks/useBottleTrail';
+import { useBottleStats } from '../../src/hooks/useBottleStats';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
@@ -81,14 +82,16 @@ export default function WorldMapScreen() {
   });
   
   const qc = useQueryClient();
-  const { data: trailMarkers, isLoading, error } = useBottles(true);
+  const { data: trailMarkers, isLoading, error } = useBottleTrail(true);
+  const { data: statsData, refetch: refetchStats } = useBottleStats();
 
   // Refresh map data whenever this tab is focused
   useFocusEffect(
     React.useCallback(() => {
-      console.log('🌍 World Map focused - refreshing global data...');
-      qc.invalidateQueries({ queryKey: ['bottles-trail'] });
-    }, [qc])
+
+      qc.invalidateQueries({ queryKey: ['bottles-complete-trail'] });
+      refetchStats();
+    }, [qc, refetchStats])
   );
 
   // Filter trail markers with proper spacing
@@ -189,17 +192,18 @@ export default function WorldMapScreen() {
     });
   }, [filteredMarkers]);
 
-  // Calculate counts for filters
+  // Calculate counts for filters - use accurate stats for created/found/retossed, trail markers for all
   const counts = useMemo(() => {
-    if (!trailMarkers) return { all: 0, created: 0, found: 0, retossed: 0 };
+    const stats = statsData || { created: 0, found: 0, retossed: 0 };
+    const allCount = trailMarkers?.length || 0;
     
     return {
-      all: trailMarkers.length,
-      created: trailMarkers.filter(m => m.actionType === 'created').length,
-      found: trailMarkers.filter(m => m.actionType === 'found').length,
-      retossed: trailMarkers.filter(m => m.actionType === 'retossed').length,
+      all: allCount,
+      created: stats.created,
+      found: stats.found,
+      retossed: stats.retossed,
     };
-  }, [trailMarkers]);
+  }, [trailMarkers, statsData]);
 
   if (isLoading) {
     return (

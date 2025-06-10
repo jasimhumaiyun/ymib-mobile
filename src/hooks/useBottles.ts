@@ -82,7 +82,7 @@ export function useBottles(isMapActive: boolean = true) {
               
               console.log(`🔍 Creating ${actionType} marker for bottle ${bottle.id.slice(0, 8)}`);
               markers.push({
-                id: `${bottle.id}-${event.id}`,
+                id: `${bottle.id}-${event.id || index}`, // Fallback to index if event.id is missing
                 bottleId: bottle.id,
                 actionType,
                 status: bottle.status,
@@ -97,7 +97,7 @@ export function useBottles(isMapActive: boolean = true) {
               // EVERY found event creates a green marker, including replies
               console.log(`🔍 Creating found marker for bottle ${bottle.id.slice(0, 8)}`);
               markers.push({
-                id: `${bottle.id}-${event.id}`,
+                id: `${bottle.id}-${event.id || index}`, // Fallback to index if event.id is missing
                 bottleId: bottle.id,
                 actionType: 'found',
                 status: bottle.status,
