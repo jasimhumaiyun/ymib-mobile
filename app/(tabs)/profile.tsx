@@ -1,9 +1,11 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, ImageBackground, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, ImageBackground, ActivityIndicator, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useBottles } from '../../src/hooks/useBottles';
 import { useBottleStats } from '../../src/hooks/useBottleStats';
+import { useUserProfiles } from '../../src/hooks/useUserProfiles';
 import { Colors, Typography, Spacing, BorderRadius, Shadows } from '../../src/constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -18,20 +20,36 @@ interface BottleInteraction {
 export default function ProfileScreen() {
   const [loading, setLoading] = useState(false);
 
-  // Use the SAME hook that works for world map - force refresh
-  const { data: trailMarkers, isLoading, refetch } = useBottles(true);
+  const { currentUser, username, isAnonymous, signOut } = useUserProfiles();
+  // Use user-specific bottle data for profile
+  const { data: trailMarkers, isLoading, refetch } = useBottles(true, username || undefined);
   
   // Use the new stats hook for accurate statistics
   const { data: statsData, isLoading: statsLoading, refetch: refetchStats } = useBottleStats();
   
   // Force refresh when profile loads
   useEffect(() => {
+    console.log('📊 Profile: Initial load, refreshing stats...');
     refetch();
     refetchStats();
   }, [refetch, refetchStats]);
 
+  // Auto-refresh when profile tab is focused
+  useFocusEffect(
+    React.useCallback(() => {
+      console.log('📊 Profile: Tab focused, refreshing stats...');
+      refetch();
+      refetchStats();
+    }, [refetch, refetchStats])
+  );
+
   // Use accurate stats from the new hook, fallback to trail markers for recent bottles
   const stats = statsData || { created: 0, found: 0, retossed: 0 };
+  
+  // Log current stats for debugging
+  useEffect(() => {
+    console.log('📊 Profile stats updated:', stats);
+  }, [stats]);
   
   // Process the trail markers to get recent bottles list
   const bottles = useMemo(() => {
@@ -100,7 +118,31 @@ export default function ProfileScreen() {
     }
   };
 
-  return (
+  // DEBUG: Clear all local data function
+  const handleClearAllData = async () => {
+    Alert.alert(
+      'Clear All Data',
+      'This will clear your username and reset the app. Are you sure?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await AsyncStorage.clear();
+              await signOut();
+              Alert.alert('Success', 'All local data cleared. Please restart the app.');
+            } catch (error) {
+              Alert.alert('Error', 'Failed to clear data');
+            }
+          }
+        }
+      ]
+          );
+    };
+
+    return (
     <ImageBackground 
       source={require('../../images/homepage_BG_new.png')} 
       style={styles.container}
@@ -114,6 +156,8 @@ export default function ProfileScreen() {
         >
           {/* Header Section */}
           <View style={styles.headerSection}>
+            <Text style={styles.welcomeText}>⚓ Captain {username || 'Voyager'}</Text>
+            <Text style={styles.userType}>{isAnonymous ? 'Anonymous Sailor' : 'Registered Mariner'}</Text>
             <Text style={styles.title}>Your Ocean Journey</Text>
             <Text style={styles.subtitle}>
               Messages cast into the endless seas
@@ -170,7 +214,7 @@ export default function ProfileScreen() {
               
               {bottles.slice(0, 3).map((bottle, index) => (
                 <Pressable 
-                  key={bottle.id}
+                  key={`${bottle.id}-${index}`}
                   style={styles.recentCard}
                   onPress={() => handleViewBottleJourney(bottle.id)}
                 >
@@ -245,6 +289,16 @@ export default function ProfileScreen() {
               <Text style={styles.loadingText}>Loading your journey...</Text>
             </View>
           )}
+
+          {/* DEBUG: Clear Data Button */}
+          <View style={styles.debugSection}>
+            <Pressable 
+              style={styles.debugButton}
+              onPress={handleClearAllData}
+            >
+              <Text style={styles.debugButtonText}>🗑️ Clear All Data (Debug)</Text>
+            </Pressable>
+          </View>
         </ScrollView>
       </SafeAreaView>
     </ImageBackground>
@@ -269,6 +323,20 @@ const styles = StyleSheet.create({
   headerSection: {
     alignItems: 'center',
     marginBottom: Spacing['2xl'],
+  },
+  welcomeText: {
+    fontSize: Typography.sizes.xl,
+    fontWeight: Typography.weights.bold,
+    color: Colors.accent.treasure,
+    textAlign: 'center',
+    marginBottom: Spacing.xs,
+  },
+  userType: {
+    fontSize: Typography.sizes.sm,
+    color: Colors.text.secondary,
+    textAlign: 'center',
+    marginBottom: Spacing.lg,
+    fontStyle: 'italic',
   },
   title: {
     fontSize: Typography.sizes['3xl'],
@@ -452,5 +520,24 @@ const styles = StyleSheet.create({
     fontSize: Typography.sizes.md,
     color: Colors.text.secondary,
     marginTop: Spacing.md,
+  },
+  debugSection: {
+    alignItems: 'center',
+    marginTop: Spacing.xl,
+    paddingTop: Spacing.lg,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  debugButton: {
+    backgroundColor: Colors.error,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.md,
+    opacity: 0.8,
+  },
+  debugButtonText: {
+    color: Colors.text.inverse,
+    fontSize: Typography.sizes.sm,
+    fontWeight: Typography.weights.medium,
   },
 }); 

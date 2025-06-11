@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
+import { useUserProfiles } from './useUserProfiles';
 
 export interface BottleStats {
   created: number;
@@ -8,64 +9,74 @@ export interface BottleStats {
 }
 
 export function useBottleStats() {
+  const { username } = useUserProfiles();
+  
   return useQuery({
-    queryKey: ['bottle-stats'],
+    queryKey: ['bottle-stats', username],
     queryFn: async (): Promise<BottleStats> => {
-
+      if (!username) {
+        return { created: 0, found: 0, retossed: 0 };
+      }
       
-      // Get all bottle events to calculate proper stats
+      // Get all bottle events to properly determine created vs retossed
       const { data: events, error } = await supabase
         .from('bottle_events')
-        .select('event_type, bottle_id');
+        .select('event_type, bottle_id, tosser_name, finder_name, created_at')
+        .order('created_at', { ascending: true });
       
       if (error) {
         console.error('❌ Error fetching bottle events for stats:', error);
         throw error;
       }
       
-      // Count unique bottles for each action type
-      const createdBottles = new Set<string>();
-      const foundBottles = new Set<string>();
-      const retossedBottles = new Set<string>();
+      // Count user-specific bottle actions
+      let created = 0;
+      let found = 0;
+      let retossed = 0;
       
-      // Group events by bottle_id to properly count actions
-      const bottleEventMap = new Map<string, { cast_away: number; found: number }>();
-      
+      // Group events by bottle
+      const bottleEvents = new Map<string, any[]>();
       events?.forEach(event => {
-        if (!bottleEventMap.has(event.bottle_id)) {
-          bottleEventMap.set(event.bottle_id, { cast_away: 0, found: 0 });
+        if (!bottleEvents.has(event.bottle_id)) {
+          bottleEvents.set(event.bottle_id, []);
         }
-        
-        const bottleEvents = bottleEventMap.get(event.bottle_id)!;
-        if (event.event_type === 'cast_away') {
-          bottleEvents.cast_away++;
-        } else if (event.event_type === 'found') {
-          bottleEvents.found++;
-        }
+        bottleEvents.get(event.bottle_id)!.push(event);
       });
       
-      // Count bottles by action type
-      bottleEventMap.forEach((events, bottleId) => {
-        // Every bottle with at least 1 cast_away is "created"
-        if (events.cast_away >= 1) {
-          createdBottles.add(bottleId);
-        }
+      // Analyze each bottle's events to count correct stats
+      bottleEvents.forEach((bottleEventList, bottleId) => {
+        const castAwayEvents = bottleEventList.filter(e => e.event_type === 'cast_away');
+        const foundEvents = bottleEventList.filter(e => e.event_type === 'found');
         
-        // Bottles with found events are "found"
-        if (events.found >= 1) {
-          foundBottles.add(bottleId);
-        }
+        // Count user's actions for this bottle
+        castAwayEvents.forEach((event, index) => {
+          if (event.tosser_name === username) {
+            // Check if this user created the bottle (first cast_away globally AND by this user)
+            const isGloballyFirst = index === 0;
+            const isUserFirst = castAwayEvents.slice(0, index).every(e => e.tosser_name !== username);
+            
+            if (isGloballyFirst && isUserFirst) {
+              // This user created the bottle originally
+              created++;
+            } else {
+              // This is a retoss (either user's subsequent toss OR toss after someone else created)
+              retossed++;
+            }
+          }
+        });
         
-        // Bottles with 2+ cast_away events are "retossed"
-        if (events.cast_away >= 2) {
-          retossedBottles.add(bottleId);
-        }
+        // Count found events by this user
+        foundEvents.forEach(event => {
+          if (event.finder_name === username) {
+            found++;
+          }
+        });
       });
       
       const stats = {
-        created: createdBottles.size,
-        found: foundBottles.size,
-        retossed: retossedBottles.size
+        created,
+        found,
+        retossed
       };
       
 

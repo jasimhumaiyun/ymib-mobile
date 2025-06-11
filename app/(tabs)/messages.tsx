@@ -28,7 +28,7 @@ export default function MessagesScreen() {
   const renderConversation = ({ item }: { item: Conversation }) => (
     <Pressable 
       style={styles.conversationCard}
-      onPress={() => router.push(`/chat/${item.bottleId}` as any)}
+      onPress={() => router.push(`/chat/${item.id}` as any)}
     >
       <View style={styles.avatarContainer}>
         <Text style={styles.avatarText}>🍾</Text>
@@ -37,7 +37,7 @@ export default function MessagesScreen() {
       <View style={styles.conversationContent}>
         <View style={styles.conversationHeader}>
           <Text style={styles.conversationTitle} numberOfLines={1}>
-            Bottle from {item.originalCreator}
+            Hop #{item.hopNumber}: {item.originalCreator}
           </Text>
           <Text style={styles.conversationTime}>
             {formatDate(item.lastMessageDate)}
@@ -83,7 +83,7 @@ export default function MessagesScreen() {
             <FlatList
               data={conversations}
               renderItem={renderConversation}
-              keyExtractor={(item) => item.bottleId}
+              keyExtractor={(item) => item.id}
               style={styles.conversationsList}
               showsVerticalScrollIndicator={false}
               contentContainerStyle={{ paddingBottom: Spacing.xl }}

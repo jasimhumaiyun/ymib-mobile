@@ -25,16 +25,10 @@ export default function BottlesListScreen() {
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.header}>
           <Pressable 
-            style={styles.backButton}
-            onPress={() => {
-              if (router.canDismiss()) {
-                router.dismissAll();
-              } else {
-                router.replace('/(tabs)');
-              }
-            }}
+            style={styles.closeButton}
+            onPress={() => router.replace('/(tabs)')}
           >
-            <Ionicons name="arrow-back" size={24} color={Colors.text.ocean} />
+            <Ionicons name="close" size={24} color={Colors.text.inverse} />
           </Pressable>
           
           <Text style={styles.headerTitle}>Your Bottles</Text>
@@ -77,15 +71,8 @@ export default function BottlesListScreen() {
               
               <Pressable 
                 style={styles.backToProfileButton}
-                onPress={() => {
-                  if (router.canDismiss()) {
-                    router.dismissAll();
-                  } else {
-                    router.replace('/(tabs)');
-                  }
-                }}
+                onPress={() => router.replace('/(tabs)')}
               >
-                <Ionicons name="arrow-back" size={20} color={Colors.text.primary} />
                 <Text style={styles.backToProfileButtonText}>Back to Profile</Text>
               </Pressable>
             </View>
@@ -110,11 +97,11 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.md,
     gap: Spacing.md,
   },
-  backButton: {
+  closeButton: {
     width: 40,
     height: 40,
     borderRadius: BorderRadius.full,
-    backgroundColor: Colors.background.primary,
+    backgroundColor: 'rgba(1, 67, 72, 0.8)',
     alignItems: 'center',
     justifyContent: 'center',
     ...Shadows.base,

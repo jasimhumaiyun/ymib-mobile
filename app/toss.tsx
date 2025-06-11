@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
-import { useDeviceIdentity } from '../src/hooks/useDeviceIdentity';
+import { useUserProfiles } from '../src/hooks/useUserProfiles';
 import { supabase } from '../src/lib/supabase';
 import { Colors, Typography, Spacing, BorderRadius, Shadows } from '../src/constants/theme';
 import { Ionicons } from '@expo/vector-icons';
@@ -13,16 +13,16 @@ type TossStep = 'compose' | 'tossing' | 'success';
 
 export default function TossScreen() {
   const params = useLocalSearchParams();
-  const { identity, isLoading: identityLoading, updateUserName, getUserInfo } = useDeviceIdentity();
+  const { currentUser, username, loading: identityLoading } = useUserProfiles();
   
   const [step, setStep] = useState<TossStep>('compose');
   const [message, setMessage] = useState('');
   const [photo, setPhoto] = useState<string | null>(null);
-  const [customUserName, setCustomUserName] = useState('');
-  const [showNameField, setShowNameField] = useState(false);
   const [loading, setLoading] = useState(false);
   const [bottleId, setBottleId] = useState<string>('');
   const [bottlePassword, setBottlePassword] = useState<string>('');
+  const [createdBottleId, setCreatedBottleId] = useState<string>('');
+  const [createdBottlePassword, setCreatedBottlePassword] = useState<string>('');
 
   // Animation refs
   const bottleAnimation = useRef(new Animated.Value(0)).current;
@@ -31,20 +31,35 @@ export default function TossScreen() {
 
   useEffect(() => {
     // Get bottle data from params
-    if (params.bottleId && params.bottlePassword) {
-      setBottleId(params.bottleId as string);
-      setBottlePassword(params.bottlePassword as string);
+    const bottleIdParam = params.bottleId as string;
+    const bottlePasswordParam = params.bottlePassword as string;
+    const modeParam = params.mode as string;
+    
+    if (bottleIdParam && bottlePasswordParam && 
+        bottleIdParam !== 'undefined' && bottlePasswordParam !== 'undefined' &&
+        bottleIdParam.trim() !== '' && bottlePasswordParam.trim() !== '') {
+      
+      if (modeParam === 'create') {
+        // Coming from scanner for new bottle creation - use the scanned bottle ID
+        setBottleId(bottleIdParam);
+        setBottlePassword(''); // Don't treat as retoss
+      } else if (modeParam === 'retoss') {
+        // Actual retoss mode (coming from found screen)
+        setBottleId(bottleIdParam);
+        setBottlePassword(bottlePasswordParam);
+      } else {
+        // Legacy/fallback - if both ID and password provided without mode, assume retoss
+        setBottleId(bottleIdParam);
+        setBottlePassword(bottlePasswordParam);
+      }
+    } else {
+      // New bottle mode
+      setBottleId('');
+      setBottlePassword('');
     }
   }, [params]);
 
-  // Check if user wants to customize their name
-  useEffect(() => {
-    if (identity) {
-      // Pre-fill the custom name field with current name
-      setCustomUserName(identity.userName);
-      // Device identity loaded
-    }
-  }, [identity]);
+  // User profile is managed centrally by useUserProfiles
 
   // Start bottle animation when tossing step begins
   useEffect(() => {
@@ -101,7 +116,7 @@ export default function TossScreen() {
 
   const pickImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.8,
@@ -133,29 +148,46 @@ export default function TossScreen() {
 
   const uploadPhoto = async (photoUri: string): Promise<string | null> => {
     try {
-      const response = await fetch(photoUri);
-      const blob = await response.blob();
+      console.log('📸 Starting photo upload:', photoUri);
       
-      const fileExt = photoUri.split('.').pop();
+      const response = await fetch(photoUri);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch photo: ${response.status}`);
+      }
+      
+      const blob = await response.blob();
+      console.log('📸 Photo blob size:', blob.size);
+      
+      const fileExt = photoUri.split('.').pop() || 'jpg';
       const fileName = `${Date.now()}.${fileExt}`;
       const filePath = `bottle-photos/${fileName}`;
 
+      console.log('📸 Uploading to:', filePath);
+
       const { data, error } = await supabase.storage
         .from('bottles')
-        .upload(filePath, blob);
+        .upload(filePath, blob, {
+          contentType: blob.type || 'image/jpeg',
+          upsert: false
+        });
 
       if (error) {
-        console.error('Upload error:', error);
+        console.error('❌ Upload error:', error);
+        Alert.alert('Photo Upload Failed', `Could not upload photo: ${error.message}`);
         return null;
       }
+
+      console.log('✅ Upload successful:', data);
 
       const { data: { publicUrl } } = supabase.storage
         .from('bottles')
         .getPublicUrl(filePath);
 
+      console.log('📸 Public URL:', publicUrl);
       return publicUrl;
     } catch (error) {
-      console.error('Photo upload failed:', error);
+      console.error('❌ Photo upload failed:', error);
+      Alert.alert('Photo Upload Error', 'Failed to upload photo. Please try again.');
       return null;
     }
   };
@@ -166,22 +198,20 @@ export default function TossScreen() {
       return;
     }
 
-    if (!identity) {
-      Alert.alert('Error', 'Device identity not loaded. Please try again.');
+    if (!currentUser) {
+      Alert.alert('Error', 'User not loaded. Please try again.');
       return;
     }
 
     setLoading(true);
     setStep('tossing');
 
-    try {
-      // Update user name if they changed it
-      if (customUserName.trim() && customUserName !== identity.userName) {
-        await updateUserName(customUserName.trim());
-      }
+    // Determine if this is a retoss or new bottle
+    const isReToss = bottleId && bottlePassword;
 
-      // Get current user info
-      const userInfo = getUserInfo();
+    try {
+      // Get current user info - use the username from useUserProfiles
+      const finalUserName = username || currentUser.username;
 
       // Get location
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -200,18 +230,27 @@ export default function TossScreen() {
         photoUrl = await uploadPhoto(photo);
       }
 
-      // Determine if this is a retoss or new bottle
-      const isReToss = bottleId && bottlePassword;
+      // Generate proper UUID v4 for new bottles
+      const generateUUID = () => {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+          const r = Math.random() * 16 | 0;
+          const v = c == 'x' ? r : (r & 0x3 | 0x8);
+          return v.toString(16);
+        });
+      };
+
+      // Get auth headers
+      const authHeaders: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY}`,
+      };
 
       let response;
       if (isReToss) {
         // Retoss existing bottle
         response = await fetch(`${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/claim_or_toss_bottle`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY}`,
-          },
+          headers: authHeaders,
           body: JSON.stringify({
             id: bottleId,
             password: bottlePassword,
@@ -219,23 +258,25 @@ export default function TossScreen() {
             photoUrl: photoUrl,
             lat: location.coords.latitude,
             lon: location.coords.longitude,
-            tosserName: userInfo.userName,
+            tosserName: finalUserName,
           }),
         });
       } else {
-        // Create new bottle
-        response = await fetch(`${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/toss_bottle`, {
+        // Create new bottle - use bottle ID from QR code if available, otherwise generate UUID
+        const bottleIdToUse = bottleId || generateUUID();
+        console.log('🆕 Creating new bottle with ID:', bottleIdToUse);
+        
+        response = await fetch(`${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/claim_or_toss_bottle`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY}`,
-          },
+          headers: authHeaders,
           body: JSON.stringify({
+            id: bottleIdToUse,
+            password: 'simple123',
             message: message,
             photoUrl: photoUrl,
             lat: location.coords.latitude,
             lon: location.coords.longitude,
-            creatorName: userInfo.userName,
+            tosserName: finalUserName,
           }),
         });
       }
@@ -248,9 +289,12 @@ export default function TossScreen() {
       // Bottle operation completed successfully
 
       // Animation will transition to success automatically after 5 seconds
+      setCreatedBottleId(result.id);
+      setCreatedBottlePassword(result.password);
     } catch (error) {
-      console.error(`❌ Error ${bottleId ? 'retossing' : 'creating'} bottle:`, error);
-      Alert.alert('Error', `Failed to ${bottleId ? 'retoss' : 'create'} bottle. Please try again.`);
+      const errorAction = isReToss ? 'retossing' : 'creating';
+      console.error(`❌ Error ${errorAction} bottle:`, error);
+      Alert.alert('Error', `Failed to ${errorAction} bottle. Please try again.`);
       setStep('compose');
     } finally {
       setLoading(false);
@@ -258,11 +302,7 @@ export default function TossScreen() {
   };
 
   const handleClose = () => {
-    if (step === 'success') {
-      router.replace('/(tabs)/explore');
-    } else {
-      router.back();
-    }
+    router.back();
   };
 
   const renderContent = () => {
@@ -277,59 +317,30 @@ export default function TossScreen() {
 
     if (step === 'compose') {
       return (
-        <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-          <SafeAreaView style={styles.safeArea}>
-            <View style={styles.header}>
-              <Pressable style={styles.closeButton} onPress={handleClose}>
-                <Ionicons name="close" size={28} color={Colors.text.inverse} />
-              </Pressable>
-              <Text style={styles.headerTitle}>
-                {bottleId ? '🔄 Retoss Bottle' : '🍾 Toss a Bottle'}
+        <SafeAreaView style={styles.safeArea}>
+          <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+            <View style={styles.headerContainer}>
+              <View style={styles.header}>
+                <Pressable style={styles.closeButton} onPress={handleClose}>
+                  <Ionicons name="close" size={28} color={Colors.text.inverse} />
+                </Pressable>
+                <View style={styles.headerTitleContainer}>
+                  <Text style={styles.headerTitle}>
+                    {bottleId && bottlePassword ? 'Retossing Bottle' : 'Tossing New Bottle'}
+                  </Text>
+                </View>
+              </View>
+              <Text style={styles.headerSubtitle}>
+                Toss your physical bottle along with the digital version. Finders will see your message in both the physical bottle and this digital message.
               </Text>
             </View>
 
             <View style={styles.content}>
-              <Text style={styles.sectionTitle}>Your Identity</Text>
-              <View style={styles.identityContainer}>
-                <View style={styles.identityInfo}>
-                  <Text style={styles.identityLabel}>Sailing as:</Text>
-                  <Text style={styles.identityName}>{identity?.userName || 'Loading...'}</Text>
-                  <Text style={styles.identitySubtext}>
-                    {identity?.isAnonymous ? 'Anonymous Voyager' : 'Registered User'}
-                  </Text>
-                </View>
-                <Pressable 
-                  style={styles.changeNameButton}
-                  onPress={() => setShowNameField(!showNameField)}
-                >
-                  <Text style={styles.changeNameText}>
-                    {showNameField ? 'Cancel' : 'Change Name'}
-                  </Text>
-                </Pressable>
-              </View>
-
-              {showNameField && (
-                <View style={styles.nameFieldContainer}>
-                  <Text style={styles.fieldLabel}>Customize your name:</Text>
-                  <TextInput
-                    style={styles.nameInput}
-                    placeholder="Enter your name..."
-                    placeholderTextColor="rgba(255, 255, 255, 0.6)"
-                    value={customUserName}
-                    onChangeText={setCustomUserName}
-                    maxLength={50}
-                  />
-                  <Text style={styles.fieldNote}>
-                    This name will be shown to others who find your bottles
-                  </Text>
-                </View>
-              )}
-
               <Text style={styles.sectionTitle}>Your Message</Text>
               <TextInput
                 style={styles.messageInput}
                 placeholder="What message would you like to send into the world?"
-                placeholderTextColor="rgba(255, 255, 255, 0.6)"
+                placeholderTextColor={Colors.text.secondary}
                 value={message}
                 onChangeText={setMessage}
                 multiline
@@ -365,27 +376,18 @@ export default function TossScreen() {
                 </View>
               )}
 
-              {bottleId && (
-                <View style={styles.bottleInfo}>
-                  <Text style={styles.bottleInfoTitle}>🔄 Retossing Bottle</Text>
-                  <Text style={styles.bottleInfoText}>
-                    You're continuing this bottle's journey across the digital seas
-                  </Text>
-                </View>
-              )}
-
               <Pressable 
-                style={[styles.tossButton, (!message.trim() || loading) && styles.disabledButton]}
+                style={[styles.primaryButton, (!message.trim() || loading) && styles.primaryButtonDisabled]}
                 onPress={handleToss}
                 disabled={!message.trim() || loading}
               >
-                <Text style={styles.tossButtonText}>
-                  {bottleId ? '🌊 Retoss into Ocean' : '🌊 Toss into Ocean'}
+                <Text style={styles.primaryButtonText}>
+                  Toss into Ocean
                 </Text>
               </Pressable>
             </View>
-          </SafeAreaView>
-        </ScrollView>
+          </ScrollView>
+        </SafeAreaView>
       );
     }
 
@@ -405,10 +407,10 @@ export default function TossScreen() {
         <View style={styles.animationContainer}>
           <View style={styles.animationContent}>
             <Text style={styles.animationTitle}>
-              {bottleId ? 'Retossing your bottle...' : 'Tossing your bottle...'}
+              Tossing your bottle...
             </Text>
             <Text style={styles.animationSubtitle}>
-              Sending your message across the digital seas
+              Sending your message across the digital seas{'\n'}(don't forget to toss your physical bottle along)
             </Text>
             
             <Animated.View
@@ -426,37 +428,41 @@ export default function TossScreen() {
               <Text style={styles.bottleEmoji}>🍾</Text>
             </Animated.View>
             
-            <Text style={styles.animationDescription}>
-              {bottleId 
-                ? 'Your bottle continues its journey...' 
-                : 'Your bottle begins its journey...'
-              }
-            </Text>
+
           </View>
         </View>
       );
     }
 
     if (step === 'success') {
+      const isReToss = bottleId && bottlePassword;
+      
       return (
-        <View style={styles.successContainer}>
-          <View style={styles.successContent}>
-            <Text style={styles.successEmoji}>✨</Text>
-            <Text style={styles.successTitle}>
-              {bottleId ? 'Bottle Retossed!' : 'Bottle Tossed!'}
-            </Text>
-            <Text style={styles.successMessage}>
-              {bottleId 
-                ? 'Your bottle continues its journey across the digital ocean. Someone else might discover it soon!'
-                : 'Your message has been cast into the vast digital ocean. Someone, somewhere, might discover your bottle!'
-              }
-            </Text>
-            
-            <Pressable style={styles.exploreButton} onPress={handleClose}>
-              <Text style={styles.exploreButtonText}>🗺️ Explore the Ocean</Text>
+        <SafeAreaView style={styles.container}>
+          <View style={styles.topBar}>
+            <Pressable style={styles.closeButton} onPress={handleClose}>
+              <Ionicons name="close" size={24} color={Colors.text.inverse} />
             </Pressable>
           </View>
-        </View>
+          <View style={styles.successContainer}>
+            <View style={styles.successContent}>
+              <Text style={styles.successEmoji}>✨</Text>
+              <Text style={styles.successTitle}>
+                {isReToss ? 'Bottle Retossed!' : 'Bottle Tossed!'}
+              </Text>
+              <Text style={styles.successMessage}>
+                {isReToss 
+                  ? 'Your bottle continues its journey with a new message!'
+                  : 'Your message has been cast into the vast digital ocean. Someone, somewhere, might discover your bottle!'
+                }
+              </Text>
+              
+              <Pressable style={styles.exploreButton} onPress={handleClose}>
+                <Text style={styles.exploreButtonText}>🗺️ Explore the Ocean</Text>
+              </Pressable>
+            </View>
+          </View>
+        </SafeAreaView>
       );
     }
   };
@@ -494,23 +500,45 @@ const styles = StyleSheet.create({
     color: Colors.text.inverse,
     fontWeight: Typography.weights.medium,
   },
+  headerContainer: {
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
-    justifyContent: 'space-between',
+  },
+  headerTitleContainer: {
+    flex: 1,
+    marginLeft: Spacing.md,
   },
   closeButton: {
-    padding: Spacing.sm,
+    width: 40,
+    height: 40,
+    borderRadius: BorderRadius.full,
+    backgroundColor: 'rgba(1, 67, 72, 0.8)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Shadows.base,
+  },
+  topBar: {
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.md,
+    alignItems: 'flex-start',
   },
   headerTitle: {
-    fontSize: Typography.sizes.xl,
+    fontSize: Typography.sizes['2xl'],
     fontWeight: Typography.weights.bold,
-    color: Colors.text.inverse,
-    flex: 1,
+    color: Colors.accent.mustardSea,
     textAlign: 'center',
-    marginRight: Spacing.xl + Spacing.sm, // Balance the close button
+  },
+  headerSubtitle: {
+    fontSize: Typography.sizes.md,
+    color: Colors.text.primary,
+    textAlign: 'center',
+    marginTop: Spacing.sm,
+    lineHeight: Typography.lineHeights.normal * Typography.sizes.md,
+    opacity: 1,
   },
   content: {
     flex: 1,
@@ -592,14 +620,14 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
   messageInput: {
-    backgroundColor: 'rgba(1, 67, 72, 0.8)',
+    backgroundColor: Colors.primary[100],
     borderRadius: BorderRadius.lg,
     padding: Spacing.lg,
     fontSize: Typography.sizes.md,
-    color: Colors.text.inverse,
+    color: Colors.text.primary,
     minHeight: 120,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: Colors.primary[300],
     ...Shadows.md,
   },
   characterCount: {
@@ -607,7 +635,7 @@ const styles = StyleSheet.create({
     color: Colors.text.secondary,
     textAlign: 'right',
     marginTop: Spacing.xs,
-    marginBottom: Spacing.xl,
+    marginBottom: Spacing.sm,
   },
   photoContainer: {
     alignItems: 'center',
@@ -683,6 +711,24 @@ const styles = StyleSheet.create({
     color: Colors.text.inverse,
     fontSize: Typography.sizes.lg,
     fontWeight: Typography.weights.bold,
+  },
+  primaryButton: {
+    backgroundColor: Colors.primary[600],
+    borderRadius: BorderRadius.lg,
+    paddingVertical: Spacing.lg,
+    paddingHorizontal: Spacing.xl,
+    alignItems: 'center',
+    marginTop: Spacing.lg,
+    ...Shadows.md,
+  },
+  primaryButtonDisabled: {
+    backgroundColor: Colors.text.secondary,
+    opacity: 0.6,
+  },
+  primaryButtonText: {
+    fontSize: Typography.sizes.lg,
+    fontWeight: Typography.weights.semibold,
+    color: Colors.background.primary,
   },
   disabledButton: {
     opacity: 0.5,
@@ -762,5 +808,53 @@ const styles = StyleSheet.create({
     color: Colors.text.primary,
     fontSize: Typography.sizes.lg,
     fontWeight: Typography.weights.bold,
+  },
+  bottleInfoContainer: {
+    backgroundColor: 'rgba(1, 67, 72, 0.8)',
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.lg,
+    marginVertical: Spacing.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    width: '100%',
+  },
+  bottleInfoSubtitle: {
+    fontSize: Typography.sizes.sm,
+    color: Colors.text.inverse,
+    textAlign: 'center',
+    marginBottom: Spacing.md,
+    opacity: 0.8,
+  },
+  bottleDataContainer: {
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+  },
+  bottleDataRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.sm,
+  },
+  bottleDataLabel: {
+    fontSize: Typography.sizes.sm,
+    color: Colors.text.secondary,
+    fontWeight: Typography.weights.medium,
+  },
+  bottleDataValue: {
+    fontSize: Typography.sizes.sm,
+    color: Colors.text.inverse,
+    fontWeight: Typography.weights.bold,
+    flex: 1,
+    textAlign: 'right',
+    marginLeft: Spacing.sm,
+  },
+  qrCodeNote: {
+    fontSize: Typography.sizes.xs,
+    color: Colors.accent.mustardSea,
+    textAlign: 'center',
+    fontStyle: 'italic',
+    lineHeight: Typography.lineHeights.normal * Typography.sizes.xs,
   },
 }); 

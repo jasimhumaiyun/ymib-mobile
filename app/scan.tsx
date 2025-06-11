@@ -5,16 +5,24 @@ import SmartBottleScanner from '../src/components/SmartBottleScanner';
 
 export default function ScanScreen() {
   const handleRouteToToss = (bottleData: { id: string; password: string }) => {
+    // Pass bottle data so toss screen uses the scanned bottle ID instead of generating random UUID
     router.push({
       pathname: '/toss',
-      params: { bottleId: bottleData.id, bottlePassword: bottleData.password }
+      params: { 
+        bottleId: bottleData.id,
+        bottlePassword: bottleData.password,
+        mode: 'create' // Distinguish from retoss mode
+      }
     });
   };
 
   const handleRouteToFound = (bottleData: { id: string; password: string }) => {
     router.push({
       pathname: '/found',
-      params: { bottleId: bottleData.id, bottlePassword: bottleData.password }
+      params: { 
+        bottleId: bottleData.id,
+        bottlePassword: bottleData.password 
+      }
     });
   };
 
@@ -22,7 +30,7 @@ export default function ScanScreen() {
     router.push({
       pathname: '/found',
       params: { 
-        bottleId: bottleData.id, 
+        bottleId: bottleData.id,
         bottlePassword: bottleData.password,
         skipToRetoss: 'true'
       }

@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ImageBackground, ScrollView, Pressable, Activit
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useBottles } from '../../src/hooks/useBottles';
+import { useUserProfiles } from '../../src/hooks/useUserProfiles';
 import { Colors, Typography, Spacing, BorderRadius, Shadows } from '../../src/constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -23,18 +24,20 @@ export default function HarborScreen() {
   const [filter, setFilter] = useState<FeedFilter>('trending');
   const [refreshing, setRefreshing] = useState(false);
   
+  const { username } = useUserProfiles();
   const { data: trailMarkers, isLoading, refetch } = useBottles(true);
 
-  // Transform trail markers into discovery feed
+  // Transform trail markers into discovery feed - one card per bottle (latest activity)
   const discoveryBottles = useMemo(() => {
     if (!trailMarkers) return [];
 
-    // Group by bottle ID to get unique bottles
+    // Group by bottle ID to get one card per bottle showing latest activity
     const bottleMap = new Map<string, DiscoveryBottle>();
     
     trailMarkers.forEach(marker => {
       const existing = bottleMap.get(marker.bottleId);
       
+      // Always update if this marker is more recent (latest activity wins)
       if (!existing || new Date(marker.created_at) > new Date(existing.created_at)) {
         // Calculate trending score (recency + activity)
         const hoursAgo = (Date.now() - new Date(marker.created_at).getTime()) / (1000 * 60 * 60);
@@ -42,7 +45,7 @@ export default function HarborScreen() {
         const activityBonus = marker.actionType === 'retossed' ? 20 : marker.actionType === 'found' ? 10 : 5;
         
         bottleMap.set(marker.bottleId, {
-          id: marker.bottleId,
+          id: marker.bottleId, // Use bottle ID for React key (unique per bottle)
           message: marker.message,
           created_at: marker.created_at,
           lat: marker.lat,
@@ -139,6 +142,7 @@ export default function HarborScreen() {
       <SafeAreaView style={styles.safeArea}>
         {/* Header */}
         <View style={styles.header}>
+          <Text style={styles.welcomeText}>Hi {username || 'Voyager'}! 👋</Text>
           <Text style={styles.title}>Harbor Discovery</Text>
           <Text style={styles.subtitle}>
             {filteredBottles.length > 0 
@@ -209,7 +213,7 @@ export default function HarborScreen() {
           {filteredBottles.length > 0 ? (
             filteredBottles.map((bottle, index) => (
               <Pressable
-                key={bottle.id}
+                key={`${bottle.id}-${index}`}
                 style={styles.bottleCard}
                 onPress={() => router.push({
                   pathname: '/bottle-journey',
@@ -299,6 +303,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.xl,
     alignItems: 'center',
+  },
+  welcomeText: {
+    fontSize: Typography.sizes.lg,
+    fontWeight: Typography.weights.semibold,
+    color: Colors.accent.treasure,
+    textAlign: 'center',
+    marginBottom: Spacing.sm,
   },
   title: {
     fontSize: Typography.sizes['3xl'],

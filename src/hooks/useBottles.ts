@@ -4,12 +4,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppState } from 'react-native';
 import { BottleTrailMarker } from '../types/bottle';
 
-export function useBottles(isMapActive: boolean = true) {
+export function useBottles(isMapActive: boolean = true, username?: string) {
   const qc = useQueryClient();
 
   // Fetch bottle trail data - all actions that happened in bottle journeys
   const query = useQuery({
-    queryKey: ['bottles-trail'],
+    queryKey: ['bottles-trail', username],
     queryFn: async (): Promise<BottleTrailMarker[]> => {
       // Fetching bottle trail data from database
       
@@ -25,11 +25,18 @@ export function useBottles(isMapActive: boolean = true) {
       // For each bottle, get its complete event history
       for (const bottle of bottles) {
         // Try to get events with the standard fields
-        const { data: events, error: eventsError } = await supabase
+        let eventsQuery = supabase
           .from('bottle_events')
-          .select('id, event_type, lat, lon, message, photo_url, created_at')
+          .select('id, event_type, lat, lon, message, photo_url, created_at, tosser_name, finder_name')
           .eq('bottle_id', bottle.id)
           .order('created_at', { ascending: true });
+        
+        // If username is provided, filter for user-specific events
+        if (username) {
+          eventsQuery = eventsQuery.or(`tosser_name.eq.${username},finder_name.eq.${username}`);
+        }
+        
+        const { data: events, error: eventsError } = await eventsQuery;
         
         if (eventsError) {
           console.error('Error fetching events for bottle', bottle.id, eventsError);
@@ -66,7 +73,7 @@ export function useBottles(isMapActive: boolean = true) {
                 actionType = 'retossed'; // Subsequent cast_away events are RETOSSED (blue)
               }
               markers.push({
-                id: `${bottle.id}-${event.id || index}`, // Fallback to index if event.id is missing
+                id: `${bottle.id}-${eventType}-${event.id || `${index}-${Date.now()}-${Math.random()}`}`, // Absolutely unique ID
                 bottleId: bottle.id,
                 actionType,
                 status: bottle.status,
@@ -80,7 +87,7 @@ export function useBottles(isMapActive: boolean = true) {
             } else if (eventType === 'found') {
               // EVERY found event creates a green marker, including replies
               markers.push({
-                id: `${bottle.id}-${event.id || index}`, // Fallback to index if event.id is missing
+                id: `${bottle.id}-${eventType}-${event.id || `${index}-${Date.now()}-${Math.random()}`}`, // Absolutely unique ID
                 bottleId: bottle.id,
                 actionType: 'found',
                 status: bottle.status,

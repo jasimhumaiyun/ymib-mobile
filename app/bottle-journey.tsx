@@ -7,6 +7,7 @@ import { supabase } from '../src/lib/supabase';
 import EnhancedBottleJourney from '../src/components/EnhancedBottleJourney';
 import { Colors, Typography, Spacing, BorderRadius, Shadows } from '../src/constants/theme';
 import { Ionicons } from '@expo/vector-icons';
+import { useQueryClient } from '@tanstack/react-query';
 
 type JourneyStep = 'loading' | 'viewing' | 'retoss-prompt' | 'retossing' | 'success';
 
@@ -31,6 +32,7 @@ interface JourneyEvent {
 
 export default function BottleJourneyScreen() {
   const params = useLocalSearchParams();
+  const queryClient = useQueryClient();
   const [step, setStep] = useState<JourneyStep>('loading');
   const [journey, setJourney] = useState<JourneyEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -108,7 +110,7 @@ export default function BottleJourneyScreen() {
             message: replyMessage,
             photo_url: event.photo_url,
             created_at: event.created_at,
-            finder_name: event.tosser_name || 'Anonymous',
+            finder_name: event.finder_name || 'Anonymous',
             parent_reply_id: event.parent_reply_id,
             replies: [] // No nested replies - flat structure
           };
@@ -150,8 +152,11 @@ export default function BottleJourneyScreen() {
           return foundTime > currentCastTime && foundTime < nextCastTime;
         });
 
-        // Step 4: Build the flat reply list for this journey step
-        journeyStep.replies = buildFlatReplies(relevantFoundEvents);
+        // Step 4: Build the flat reply list for this journey step (sort latest first)
+        const sortedFoundEvents = relevantFoundEvents.sort((a, b) => 
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+        journeyStep.replies = buildFlatReplies(sortedFoundEvents);
 
         journeyEvents.push(journeyStep);
       });
@@ -171,24 +176,11 @@ export default function BottleJourneyScreen() {
           replies: []
         };
 
-        // Add any found events as replies to this single step
-        foundEvents.forEach(foundEvent => {
-          if (foundEvent.message === 'Bottle found') return;
-
-          let replyMessage = foundEvent.message || '';
-          if (replyMessage.startsWith('REPLY: ')) {
-            replyMessage = replyMessage.substring(7);
-          }
-
-          singleStep.replies!.push({
-            id: foundEvent.id,
-            message: replyMessage,
-            photo_url: foundEvent.photo_url,
-            created_at: foundEvent.created_at,
-            finder_name: foundEvent.tosser_name || 'Anonymous',
-            replies: []
-          });
-        });
+        // Add any found events as replies to this single step (sort latest first)
+        const sortedFoundEvents = foundEvents.sort((a, b) => 
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+        singleStep.replies = buildFlatReplies(sortedFoundEvents);
 
         journeyEvents.push(singleStep);
       }
@@ -286,6 +278,9 @@ export default function BottleJourneyScreen() {
       });
 
       if (error) throw error;
+
+      // Invalidate bottle stats to refresh the profile
+      queryClient.invalidateQueries({ queryKey: ['bottle-stats'] });
 
       // Animation will automatically transition to success
 
@@ -436,16 +431,10 @@ export default function BottleJourneyScreen() {
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.header}>
           <Pressable 
-            style={styles.backButton}
-            onPress={() => {
-              if (router.canDismiss()) {
-                router.dismissAll();
-              } else {
-                router.replace('/(tabs)');
-              }
-            }}
+            style={styles.closeButton}
+            onPress={() => router.replace('/(tabs)')}
           >
-            <Ionicons name="arrow-back" size={24} color={Colors.text.ocean} />
+            <Ionicons name="close" size={24} color={Colors.text.inverse} />
           </Pressable>
         </View>
 
@@ -468,11 +457,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.md,
   },
-  backButton: {
+  closeButton: {
     width: 40,
     height: 40,
     borderRadius: BorderRadius.full,
-    backgroundColor: Colors.background.primary,
+    backgroundColor: 'rgba(1, 67, 72, 0.8)',
     alignItems: 'center',
     justifyContent: 'center',
     ...Shadows.base,

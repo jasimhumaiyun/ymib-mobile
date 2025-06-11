@@ -6,6 +6,7 @@ import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../src/lib/supabase';
+import { useUserProfiles } from '../src/hooks/useUserProfiles';
 import { Colors, Typography, Spacing, BorderRadius, Shadows } from '../src/constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -23,6 +24,7 @@ interface BottleData {
 
 export default function FoundScreen() {
   const params = useLocalSearchParams();
+  const { username } = useUserProfiles(); // Get consistent username
   const [step, setStep] = useState<FoundStep>('bottle-view');
   const [bottleData, setBottleData] = useState<BottleData | null>(null);
   const [replyMessage, setReplyMessage] = useState('');
@@ -33,6 +35,7 @@ export default function FoundScreen() {
   const [bottleId, setBottleId] = useState<string>('');
   const [bottlePassword, setBottlePassword] = useState<string>('');
   const [hasSkippedToRetoss, setHasSkippedToRetoss] = useState(false);
+  const [isCheckingRetoss, setIsCheckingRetoss] = useState(false);
 
   // Animation refs for retoss
   const bottleAnimation = useRef(new Animated.Value(0)).current;
@@ -68,6 +71,14 @@ export default function FoundScreen() {
       startRetossAnimation();
     }
   }, [step]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      setIsCheckingRetoss(false);
+      setLoading(false);
+    };
+  }, []);
 
   const checkUserProfile = async () => {
     try {
@@ -155,7 +166,7 @@ export default function FoundScreen() {
 
   const pickImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.8,
@@ -247,12 +258,13 @@ export default function FoundScreen() {
       }
 
       // Call edge function to mark as found with reply
+      const actualFinderName = username || finderName.trim() || 'Anonymous';
       const requestBody = {
         id: bottleId,
         password: bottlePassword,
         message: `REPLY: ${replyMessage.trim()}`,
         photoUrl,
-        finderName: finderName.trim() || 'Anonymous',
+        finderName: actualFinderName,
         lat: coords.latitude,
         lon: coords.longitude,
         action: 'found'
@@ -270,6 +282,7 @@ export default function FoundScreen() {
         return;
       }
 
+      // Trigger a stats refresh after successful found action
       setStep('found-options');
     } catch (error) {
       console.error('Error marking as found:', error);
@@ -277,6 +290,88 @@ export default function FoundScreen() {
       setLoading(false);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleRetoss = async () => {
+    // Prevent rapid clicking
+    if (isCheckingRetoss) return;
+    
+    setIsCheckingRetoss(true);
+    
+    try {
+      // Simple delay to allow database to update
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      const { data: freshBottle, error } = await supabase
+        .from('bottles')
+        .select('status, tosser_name')
+        .eq('id', bottleId)
+        .single();
+
+      if (error) {
+        console.error('Error checking bottle status:', error);
+        Alert.alert('Error', 'Could not verify bottle status');
+        return;
+      }
+
+      if (freshBottle.status === 'adrift') {
+        // Check if current user was the last tosser
+        const currentUser = username?.trim().toLowerCase() || '';
+        const lastTosser = freshBottle.tosser_name?.trim().toLowerCase() || '';
+        
+        if (currentUser === lastTosser && currentUser !== '') {
+          Alert.alert('Already Retossed', 'You already retossed this bottle! It\'s now floating in the digital ocean waiting for someone else to find it.\n\nDon\'t forget to toss the physical bottle as well!');
+          handleClose();
+          return;
+        } else {
+          Alert.alert('Already Retossed', 'This bottle has already been retossed and is back in the ocean!');
+          handleClose();
+          return;
+        }
+      }
+
+      // If status is 'found', check if current user is the one who found it
+      if (freshBottle.status === 'found') {
+        // Get the last 'found' event to see who found it
+        const { data: lastFoundEvent } = await supabase
+          .from('bottle_events')
+          .select('finder_name')
+          .eq('bottle_id', bottleId)
+          .eq('event_type', 'found')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single();
+
+        const currentUser = username?.trim().toLowerCase() || '';
+        const finder = lastFoundEvent?.finder_name?.trim().toLowerCase() || '';
+        
+        if (currentUser !== finder || currentUser === '') {
+          Alert.alert('Access Denied', 'Only the person who found this bottle can retoss it.');
+          handleClose();
+          return;
+        }
+        
+        // Current user found it, allow retoss
+        router.push({
+          pathname: '/toss',
+          params: {
+            bottleId: bottleId,
+            bottlePassword: bottlePassword,
+            mode: 'retoss'
+          }
+        });
+        return;
+      }
+
+      // Unknown status - should not happen
+      Alert.alert('Error', 'Unknown bottle status. Please try again.');
+      handleClose();
+    } catch (error) {
+      console.error('Error checking bottle status:', error);
+      Alert.alert('Error', 'Could not verify bottle status');
+    } finally {
+      setIsCheckingRetoss(false);
     }
   };
 
@@ -303,27 +398,41 @@ export default function FoundScreen() {
         accuracy: Location.Accuracy.Balanced,
       });
 
-      // Call edge function to retoss (no message = retoss action)
-      const requestBody = {
-        id: bottleId,
-        password: bottlePassword,
-        tosserName: finderName.trim() || 'Anonymous',
-        lat: coords.latitude,
-        lon: coords.longitude
-      };
+      // Call edge function to retoss (with message to indicate retoss action)
+      const actualTosserName = username || finderName.trim() || 'Anonymous';
       
-
-      
-      const { data, error } = await supabase.functions.invoke('claim_or_toss_bottle', {
-        body: requestBody,
+      const response = await fetch(`${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/claim_or_toss_bottle`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({
+          id: bottleId,
+          password: bottlePassword,
+          message: "Continuing the journey...",
+          tosserName: actualTosserName,
+          lat: coords.latitude,
+          lon: coords.longitude,
+          action: 'retoss'
+        }),
       });
 
-      if (error) {
-        Alert.alert('Error', error.message || 'Failed to retoss bottle');
-        setStep('found-options');
-        return;
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ Error retossing bottle:', response.status, errorText);
+        throw new Error(`Failed to retoss bottle: ${response.status}`);
       }
 
+      const result = await response.json();
+      console.log('✅ Retoss successful, result:', result);
+      console.log('📋 Current user who retossed:', actualTosserName);
+
+      // Update local bottle data to prevent double retoss
+      if (bottleData) {
+        setBottleData({ ...bottleData, status: 'adrift' });
+        console.log('📝 Updated local bottle data status to adrift');
+      }
 
       // Animation will automatically transition to success (handled by useEffect)
     } catch (error) {
@@ -353,12 +462,20 @@ export default function FoundScreen() {
 
   const handleClose = () => {
     try {
+      console.log('🔄 Closing found screen...');
+      // Reset any loading states
+      setIsCheckingRetoss(false);
+      setLoading(false);
+      
+      // Always dismiss all modals and navigate to main tabs
       if (router.canDismiss()) {
+        console.log('✅ Dismissing all modals');
         router.dismissAll();
-      } else {
-        // Navigate to home tab instead of going back
-        router.replace('/(tabs)');
       }
+      
+      // Use replace to ensure clean navigation
+      console.log('✅ Navigating to main tabs');
+      router.replace('/(tabs)');
     } catch (error) {
       console.error('Navigation error:', error);
       // Fallback: try to navigate to home
@@ -380,8 +497,8 @@ export default function FoundScreen() {
         return (
           <SafeAreaView style={styles.container}>
             <View style={styles.topBar}>
-              <Pressable style={styles.backButton} onPress={handleClose}>
-                <Text style={styles.backButtonText}>← Home</Text>
+              <Pressable style={styles.closeButton} onPress={handleClose}>
+                <Ionicons name="close" size={24} color={Colors.text.inverse} />
               </Pressable>
             </View>
 
@@ -396,16 +513,13 @@ export default function FoundScreen() {
                   source={require('../images/homepage_bottle.png')} 
                   style={styles.bottleImage}
                 />
-                <Text style={styles.bottleHint}>
-                  Click the bottle to open your digital message
-                </Text>
               </View>
 
               <Pressable 
                 style={styles.openBottleButton}
                 onPress={() => setStep('message-view')}
               >
-                <Text style={styles.openBottleText}>🍾 Open Bottle</Text>
+                <Text style={styles.openBottleText}>Open Bottle</Text>
               </Pressable>
             </View>
           </SafeAreaView>
@@ -415,8 +529,8 @@ export default function FoundScreen() {
         return (
           <SafeAreaView style={styles.container}>
             <View style={styles.topBar}>
-              <Pressable style={styles.backButton} onPress={() => setStep('bottle-view')}>
-                <Text style={styles.backButtonText}>← Back</Text>
+              <Pressable style={styles.closeButton} onPress={handleClose}>
+                <Ionicons name="close" size={24} color={Colors.text.inverse} />
               </Pressable>
             </View>
 
@@ -439,6 +553,13 @@ export default function FoundScreen() {
                   <Image 
                     source={{ uri: bottleData.photo_url }} 
                     style={styles.messagePhoto}
+                    onError={(error) => {
+                      console.log('❌ Image error:', error.nativeEvent.error);
+                      console.log('❌ Image URL:', bottleData.photo_url);
+                    }}
+                    onLoad={() => console.log('✅ Image loaded successfully:', bottleData.photo_url)}
+                    onLoadStart={() => console.log('🔄 Image loading started:', bottleData.photo_url)}
+                    onLoadEnd={() => console.log('🏁 Image loading ended:', bottleData.photo_url)}
                   />
                 )}
               </View>
@@ -457,56 +578,21 @@ export default function FoundScreen() {
         return (
           <SafeAreaView style={styles.container}>
             <View style={styles.topBar}>
-              <Pressable style={styles.backButton} onPress={() => setStep('message-view')}>
-                <Text style={styles.backButtonText}>← Back</Text>
+              <Pressable style={styles.closeButton} onPress={handleClose}>
+                <Ionicons name="close" size={24} color={Colors.text.inverse} />
               </Pressable>
             </View>
 
             <ScrollView style={styles.replyContainer} showsVerticalScrollIndicator={false}>
               <Text style={styles.replyTitle}>Your Reply</Text>
 
-              {/* Name Field - Only show if user doesn't have profile */}
-              {showNameField && (
-                <>
-                  <Text style={styles.sectionTitle}>Your Name (Optional)</Text>
-                  <TextInput
-                    style={styles.nameInput}
-                    placeholder="Enter your name or leave blank for Anonymous"
-                    placeholderTextColor="rgba(255, 255, 255, 0.6)"
-                    value={finderName}
-                    onChangeText={setFinderName}
-                    maxLength={50}
-                  />
-                  <Text style={styles.fieldNote}>
-                    This will be shown as the finder of this bottle
-                  </Text>
-                </>
-              )}
 
-              {/* Show current name and option to change it */}
-              {!showNameField && (
-                <View style={styles.currentNameContainer}>
-                  <Text style={styles.currentNameText}>
-                    Replying as: {finderName || 'Anonymous'}
-                  </Text>
-                  <Pressable 
-                    style={styles.changeNameButton}
-                    onPress={async () => {
-                      await AsyncStorage.removeItem('userName');
-                      setFinderName('');
-                      setShowNameField(true);
-                    }}
-                  >
-                    <Text style={styles.changeNameText}>Change Name</Text>
-                  </Pressable>
-                </View>
-              )}
 
               <Text style={styles.sectionTitle}>Your Reply Message</Text>
               <TextInput
                 style={styles.replyInput}
                 placeholder="What would you like to say to the bottle creator?"
-                placeholderTextColor="rgba(255, 255, 255, 0.6)"
+                placeholderTextColor={Colors.text.secondary}
                 value={replyMessage}
                 onChangeText={setReplyMessage}
                 multiline
@@ -548,7 +634,7 @@ export default function FoundScreen() {
                 disabled={!replyMessage.trim() || loading}
               >
                 <Text style={styles.markFoundText}>
-                  {loading ? 'Marking as Found...' : '✅ Mark as Found'}
+                  {loading ? 'Marking as Found...' : 'Mark as Found'}
                 </Text>
               </Pressable>
             </ScrollView>
@@ -558,6 +644,11 @@ export default function FoundScreen() {
       case 'found-options':
         return (
           <SafeAreaView style={styles.container}>
+            <View style={styles.topBar}>
+              <Pressable style={styles.closeButton} onPress={handleClose}>
+                <Ionicons name="close" size={24} color={Colors.text.inverse} />
+              </Pressable>
+            </View>
             <View style={styles.optionsContainer}>
               <Text style={styles.optionsTitle}>Bottle Marked as Found!</Text>
               <Text style={styles.optionsSubtitle}>
@@ -566,13 +657,15 @@ export default function FoundScreen() {
 
               <View style={styles.optionButtons}>
                 <Pressable 
-                  style={[styles.retossButton, loading && styles.disabledButton]}
-                  onPress={handleRetossNow}
-                  disabled={loading}
+                  style={[styles.retossButton, (loading || isCheckingRetoss) && styles.disabledButton]}
+                  onPress={handleRetoss}
+                  disabled={loading || isCheckingRetoss}
                 >
                   <Ionicons name="refresh" size={24} color={Colors.text.inverse} />
-                  <Text style={styles.retossButtonText}>Toss Bottle</Text>
-                  <Text style={styles.retossButtonSubtext}>Send it back to the ocean</Text>
+                  <Text style={styles.retossButtonText}>
+                    {isCheckingRetoss ? 'Checking...' : 'Retoss Bottle'}
+                  </Text>
+                  <Text style={styles.retossButtonSubtext}>Add your message and send it back</Text>
                 </Pressable>
               </View>
 
@@ -630,6 +723,11 @@ export default function FoundScreen() {
       case 'success':
         return (
           <SafeAreaView style={styles.container}>
+            <View style={styles.topBar}>
+              <Pressable style={styles.closeButton} onPress={handleClose}>
+                <Ionicons name="close" size={24} color={Colors.text.inverse} />
+              </Pressable>
+            </View>
             <View style={styles.successContainer}>
               <Text style={styles.successIcon}>🌊</Text>
               <Text style={styles.successTitle}>Journey Continues!</Text>
@@ -688,13 +786,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.md,
   },
-  backButton: {
-    padding: Spacing.sm,
-  },
-  backButtonText: {
-    fontSize: Typography.sizes.md,
-    color: Colors.text.inverse,
-    fontWeight: Typography.weights.semibold,
+  closeButton: {
+    width: 40,
+    height: 40,
+    borderRadius: BorderRadius.full,
+    backgroundColor: 'rgba(1, 67, 72, 0.8)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Shadows.base,
   },
   loadingContainer: {
     flex: 1,
@@ -714,23 +813,24 @@ const styles = StyleSheet.create({
   title: {
     fontSize: Typography.sizes['3xl'],
     fontWeight: Typography.weights.bold,
-    color: Colors.text.ocean,
+    color: Colors.accent.mustardSea,
     textAlign: 'center',
     marginBottom: Spacing.sm,
   },
   subtitle: {
-    fontSize: Typography.sizes.md,
-    color: Colors.text.secondary,
+    fontSize: Typography.sizes.lg,
+    color: Colors.text.primary,
     textAlign: 'center',
     marginBottom: Spacing['2xl'],
+    fontWeight: Typography.weights.medium,
   },
   bottleImageContainer: {
     alignItems: 'center',
     marginBottom: Spacing['2xl'],
   },
   bottleImage: {
-    width: 200,
-    height: 200,
+    width: 280,
+    height: 280,
     resizeMode: 'contain',
     marginBottom: Spacing.lg,
   },
@@ -766,11 +866,12 @@ const styles = StyleSheet.create({
   },
   originalMessage: {
     backgroundColor: 'rgba(1, 67, 72, 0.8)',
-    padding: Spacing.lg,
+    padding: Spacing.md,
     borderRadius: BorderRadius.lg,
     marginBottom: Spacing.xl,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
+    maxHeight: 250,
   },
   messageHeader: {
     flexDirection: 'row',
@@ -847,14 +948,14 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
   replyInput: {
-    backgroundColor: 'rgba(1, 67, 72, 0.8)',
+    backgroundColor: Colors.primary[100],
     borderRadius: BorderRadius.lg,
     padding: Spacing.lg,
     fontSize: Typography.sizes.md,
-    color: Colors.text.inverse,
+    color: Colors.text.primary,
     minHeight: 120,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: Colors.primary[300],
     ...Shadows.md,
   },
   characterCount: {
@@ -907,14 +1008,14 @@ const styles = StyleSheet.create({
     fontWeight: Typography.weights.semibold,
   },
   markFoundButton: {
-    backgroundColor: Colors.accent.seaweed,
+    backgroundColor: Colors.accent.mustardSea,
     paddingVertical: Spacing.lg,
     borderRadius: BorderRadius.lg,
     alignItems: 'center',
     ...Shadows.md,
   },
   markFoundText: {
-    color: Colors.text.inverse,
+    color: Colors.text.primary,
     fontSize: Typography.sizes.lg,
     fontWeight: Typography.weights.bold,
   },

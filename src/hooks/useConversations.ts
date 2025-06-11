@@ -2,7 +2,9 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 
 export interface Conversation {
+  id: string; // Unique conversation ID based on bottle + hop
   bottleId: string;
+  hopNumber: number; // Which hop this conversation represents
   originalMessage: string;
   originalCreator: string;
   originalCreatedAt: string;
@@ -18,16 +20,17 @@ export function useConversations() {
   return useQuery({
     queryKey: ['conversations'],
     queryFn: async (): Promise<Conversation[]> => {
-      // Fetching active conversations
-      
       // Get all bottles that have replies (found events with REPLY: messages)
       const { data: bottlesWithReplies, error } = await supabase
         .from('bottle_events')
         .select(`
+          id,
           bottle_id,
           message,
           created_at,
           tosser_name,
+          finder_name,
+          event_type,
           bottles!inner(
             message,
             creator_name,
@@ -44,53 +47,85 @@ export function useConversations() {
         throw error;
       }
 
-      // Group by bottle_id and create conversation objects
-      const conversationMap = new Map<string, any>();
-      
-      bottlesWithReplies?.forEach((reply: any) => {
-        const bottleId = reply.bottle_id;
-        const bottle = reply.bottles;
-        
-        if (!conversationMap.has(bottleId)) {
-          // Initialize conversation with original bottle data
-          conversationMap.set(bottleId, {
-            bottleId,
-            originalMessage: bottle.message || 'No message',
-            originalCreator: bottle.creator_name || bottle.tosser_name || 'Anonymous',
-            originalCreatedAt: bottle.created_at,
-            originalPhotoUrl: bottle.photo_url,
-            replies: []
-          });
+      // For each reply, we need to find the corresponding "found" event and preceding "cast_away" event
+      // to create a conversation context for that specific hop
+      const conversations: Conversation[] = [];
+
+             for (const reply of bottlesWithReplies || []) {
+         const bottleId = reply.bottle_id;
+         const bottle = Array.isArray(reply.bottles) ? reply.bottles[0] : reply.bottles;
+
+        // Get all events for this bottle to understand the sequence
+        const { data: allEvents } = await supabase
+          .from('bottle_events')
+          .select('*')
+          .eq('bottle_id', bottleId)
+          .order('created_at', { ascending: true });
+
+        if (!allEvents) continue;
+
+        // Find the "found" event that corresponds to this reply
+        const replyIndex = allEvents.findIndex(e => e.id === reply.id);
+        if (replyIndex === -1) continue;
+
+        // Find the most recent "found" event before this reply
+        let foundEvent = null;
+        for (let i = replyIndex - 1; i >= 0; i--) {
+          if (allEvents[i].event_type === 'found') {
+            foundEvent = allEvents[i];
+            break;
+          }
         }
-        
-        // Add this reply to the conversation
-        const conversation = conversationMap.get(bottleId);
-        conversation.replies.push({
-          message: reply.message,
-          created_at: reply.created_at,
-          sender: reply.tosser_name || 'Anonymous'
-        });
-      });
 
-      // Convert to final conversation format
-      const conversations: Conversation[] = Array.from(conversationMap.values()).map(conv => {
-        const lastReply = conv.replies[0]; // Already sorted by date desc
-        
-        return {
-          bottleId: conv.bottleId,
-          originalMessage: conv.originalMessage,
-          originalCreator: conv.originalCreator,
-          originalCreatedAt: conv.originalCreatedAt,
-          originalPhotoUrl: conv.originalPhotoUrl,
-          lastMessage: lastReply.message.replace('REPLY: ', ''),
-          lastMessageDate: lastReply.created_at,
-          lastMessageSender: lastReply.sender,
-          replyCount: conv.replies.length,
-          hasUnread: false // Future feature
+        // Find the "cast_away" event that corresponds to this found event
+        let castAwayEvent = null;
+        if (foundEvent) {
+          for (let i = allEvents.indexOf(foundEvent) - 1; i >= 0; i--) {
+            if (allEvents[i].event_type === 'cast_away') {
+              castAwayEvent = allEvents[i];
+              break;
+            }
+          }
+        }
+
+        // If we can't find the proper sequence, create a fallback event structure
+        const effectiveCastAway = castAwayEvent || {
+          message: bottle.message || 'Original message',
+          tosser_name: bottle.creator_name,
+          created_at: bottle.created_at,
+          photo_url: bottle.photo_url
         };
-      });
 
-      // Found active conversations
+        // Calculate hop number (how many cast_away events happened before this one)
+        const hopNumber = allEvents.filter((e, idx) => 
+          idx <= allEvents.indexOf(foundEvent || reply) && e.event_type === 'cast_away'
+        ).length;
+
+        // Create unique conversation ID for this hop
+        const conversationId = `${bottleId}-hop${hopNumber}`;
+
+                 // Create conversation object for this specific interaction
+         conversations.push({
+           id: conversationId,
+           bottleId,
+           hopNumber,
+           originalMessage: effectiveCastAway.message || 'No message',
+           originalCreator: effectiveCastAway.tosser_name || 'Anonymous',
+           originalCreatedAt: effectiveCastAway.created_at,
+           originalPhotoUrl: effectiveCastAway.photo_url,
+           lastMessage: reply.message.replace('REPLY: ', ''),
+           lastMessageDate: reply.created_at,
+           lastMessageSender: reply.finder_name || 'Anonymous',
+           replyCount: 1, // Each conversation has exactly one reply for now
+           hasUnread: false
+         });
+      }
+
+      // Sort by most recent activity first
+      conversations.sort((a, b) => 
+        new Date(b.lastMessageDate).getTime() - new Date(a.lastMessageDate).getTime()
+      );
+
       return conversations;
     },
     staleTime: 30000, // Cache for 30 seconds

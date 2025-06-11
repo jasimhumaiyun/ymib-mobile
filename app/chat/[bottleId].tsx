@@ -11,12 +11,14 @@ import {
   Image,
   KeyboardAvoidingView,
   Platform,
-  Alert
+  Alert,
+  Modal
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+
 import { useLocalSearchParams, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useUserProfiles } from '../../src/hooks/useUserProfiles';
 import { supabase } from '../../src/lib/supabase';
 import { Colors, Typography, Spacing, BorderRadius, Shadows } from '../../src/constants/theme';
 
@@ -41,13 +43,14 @@ interface BottleData {
 export default function ChatScreen() {
   const { bottleId } = useLocalSearchParams<{ bottleId: string }>();
   const [newMessage, setNewMessage] = useState('');
-  const [senderName, setSenderName] = useState('');
+  const [showOptionsMenu, setShowOptionsMenu] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const queryClient = useQueryClient();
+  const { username, loading: userLoading } = useUserProfiles();
 
-  // Get bottle data and messages
+  // Get bottle data and messages with real-time updates
   const { data: chatData, isLoading, error, refetch } = useQuery({
-    queryKey: ['chat', bottleId],
+    queryKey: ['chat', bottleId, username],
     queryFn: async (): Promise<{ bottle: BottleData; messages: ChatMessage[] }> => {
       // Fetching chat data for bottle
       
@@ -63,7 +66,7 @@ export default function ChatScreen() {
       // Get all replies (found events with REPLY: messages)
       const { data: replies, error: repliesError } = await supabase
         .from('bottle_events')
-        .select('id, message, tosser_name, created_at, photo_url')
+        .select('id, message, tosser_name, finder_name, created_at, photo_url')
         .eq('bottle_id', bottleId)
         .like('message', 'REPLY:%')
         .order('created_at', { ascending: true });
@@ -71,6 +74,8 @@ export default function ChatScreen() {
       if (repliesError) throw repliesError;
 
       // Format messages for chat display
+      const currentUser = username?.trim().toLowerCase() || '';
+      
       const messages: ChatMessage[] = [
         // Original message first
         {
@@ -80,18 +85,22 @@ export default function ChatScreen() {
           created_at: bottle.created_at,
           photo_url: bottle.photo_url,
           isOriginal: true,
-          isFromMe: false,
+          isFromMe: (bottle.creator_name || bottle.tosser_name || '').trim().toLowerCase() === currentUser,
         },
         // Then all replies
-        ...(replies?.map(reply => ({
-          id: reply.id,
-          message: reply.message.replace('REPLY: ', ''),
-          sender: reply.tosser_name || 'Anonymous',
-          created_at: reply.created_at,
-          photo_url: reply.photo_url,
-          isOriginal: false,
-          isFromMe: false, // Future: check against current user
-        })) || [])
+        ...(replies?.map((reply) => {
+          const replySender = reply.finder_name || reply.tosser_name || 'Unknown User';
+          const isFromMe = replySender.trim().toLowerCase() === currentUser;
+          return {
+            id: reply.id,
+            message: reply.message.replace('REPLY: ', ''),
+            sender: replySender,
+            created_at: reply.created_at,
+            photo_url: reply.photo_url,
+            isOriginal: false,
+            isFromMe,
+          };
+        }) || [])
       ];
 
       return { 
@@ -105,26 +114,60 @@ export default function ChatScreen() {
         messages 
       };
     },
-    enabled: !!bottleId,
+    enabled: !!bottleId && !userLoading && !!username,
   });
+
+  // TODO: Real-time subscription disabled due to multiple subscription error
+  // Will re-enable after fixing the root cause
+  /*
+  useEffect(() => {
+    if (!bottleId || !username) return;
+
+    const channelName = `bottle-events-${bottleId}-${username}-${Date.now()}`;
+    
+    const subscription = supabase
+      .channel(channelName)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'bottle_events',
+          filter: `bottle_id=eq.${bottleId}`,
+        },
+        (payload) => {
+          console.log('🔄 Real-time message received:', payload);
+          queryClient.invalidateQueries({ queryKey: ['chat', bottleId, username] });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      console.log('🧹 Cleaning up subscription:', channelName);
+      supabase.removeChannel(subscription);
+    };
+  }, [bottleId, username, queryClient]);
+  */
 
   // Send reply mutation
   const sendReplyMutation = useMutation({
-    mutationFn: async ({ message, senderName }: { message: string; senderName: string }) => {
+    mutationFn: async ({ message, username }: { message: string; username: string }) => {
       // Sending reply to bottle
       
-      const response = await fetch(`${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/find_bottle`, {
+      const response = await fetch(`${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/claim_or_toss_bottle`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY}`,
         },
         body: JSON.stringify({
-          bottleId,
-          replyMessage: message,
-          finderName: senderName,
+          id: bottleId,
+          password: 'reply', // Replies don't need real password
+          message: `REPLY: ${message}`,
+          finderName: username,
           lat: 0, // Future: get user location
           lon: 0,
+          action: 'found'
         }),
       });
 
@@ -138,7 +181,7 @@ export default function ChatScreen() {
               // Reply sent successfully
       setNewMessage('');
       // Refresh chat data
-      queryClient.invalidateQueries({ queryKey: ['chat', bottleId] });
+      queryClient.invalidateQueries({ queryKey: ['chat', bottleId, username] });
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
       // Scroll to bottom
       setTimeout(() => {
@@ -174,15 +217,39 @@ export default function ChatScreen() {
   const handleSendMessage = () => {
     if (!newMessage.trim()) return;
     
-    if (!senderName.trim()) {
-      Alert.alert('Name Required', 'Please enter your name to send a message.');
+    if (!username?.trim()) {
+      Alert.alert('Name Required', 'Please set your username first.');
       return;
     }
 
     sendReplyMutation.mutate({ 
       message: newMessage.trim(), 
-      senderName: senderName.trim() 
+      username: username.trim() 
     });
+  };
+
+  const handleAddFriend = () => {
+    setShowOptionsMenu(false);
+    Alert.alert('Add Friend', 'Friend feature coming soon!');
+  };
+
+  const handleDeleteChat = () => {
+    setShowOptionsMenu(false);
+    Alert.alert(
+      'Delete Chat',
+      'Are you sure you want to delete this chat? This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Delete', 
+          style: 'destructive',
+          onPress: () => {
+            // TODO: Implement chat deletion
+            Alert.alert('Coming Soon', 'Chat deletion feature will be available soon.');
+          }
+        }
+      ]
+    );
   };
 
   const renderMessage = ({ item, index }: { item: ChatMessage; index: number }) => {
@@ -217,17 +284,21 @@ export default function ChatScreen() {
         ) : (
           // Regular reply message
           <View style={[styles.messageContainer, item.isFromMe ? styles.myMessage : styles.theirMessage]}>
-            <View style={styles.messageContent}>
-              <Text style={styles.messageSender}>{item.sender}</Text>
+            <View style={[styles.messageContent, item.isFromMe ? styles.myMessageContent : styles.theirMessageContent]}>
+              <View style={styles.messageHeader}>
+                <Text style={[styles.messageSender, item.isFromMe ? styles.myMessageSender : styles.theirMessageSender]} numberOfLines={1}>
+                  {item.sender}
+                </Text>
+                <Text style={[styles.messageTime, item.isFromMe ? styles.myMessageTime : styles.theirMessageTime]}>
+                  {formatTime(item.created_at)}
+                </Text>
+              </View>
               <Text style={[styles.messageText, item.isFromMe ? styles.myMessageText : styles.theirMessageText]}>
                 {item.message}
               </Text>
               {item.photo_url && (
                 <Image source={{ uri: item.photo_url }} style={styles.messagePhoto} />
               )}
-              <Text style={[styles.messageTime, item.isFromMe ? styles.myMessageTime : styles.theirMessageTime]}>
-                {formatTime(item.created_at)}
-              </Text>
             </View>
           </View>
         )}
@@ -235,29 +306,29 @@ export default function ChatScreen() {
     );
   };
 
-  if (isLoading) {
+  if (isLoading || userLoading) {
     return (
-      <ImageBackground 
-        source={require('../../images/homepage_BG_new.png')} 
-        style={styles.container}
-      >
-        <SafeAreaView style={styles.safeArea}>
+      <View style={styles.container}>
+        <ImageBackground 
+          source={require('../../images/homepage_BG_new.png')} 
+          style={styles.backgroundImage}
+        >
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color={Colors.accent.mustardSea} />
             <Text style={styles.loadingText}>Loading chat...</Text>
           </View>
-        </SafeAreaView>
-      </ImageBackground>
+        </ImageBackground>
+      </View>
     );
   }
 
   if (error || !chatData) {
     return (
-      <ImageBackground 
-        source={require('../../images/homepage_BG_new.png')} 
-        style={styles.container}
-      >
-        <SafeAreaView style={styles.safeArea}>
+      <View style={styles.container}>
+        <ImageBackground 
+          source={require('../../images/homepage_BG_new.png')} 
+          style={styles.backgroundImage}
+        >
           <View style={styles.errorContainer}>
             <Text style={styles.errorText}>❌ Error loading chat</Text>
             <Text style={styles.errorSubtext}>{error?.message || 'Unknown error'}</Text>
@@ -265,8 +336,8 @@ export default function ChatScreen() {
               <Text style={styles.retryButtonText}>Try Again</Text>
             </Pressable>
           </View>
-        </SafeAreaView>
-      </ImageBackground>
+        </ImageBackground>
+      </View>
     );
   }
 
@@ -275,26 +346,26 @@ export default function ChatScreen() {
       source={require('../../images/homepage_BG_new.png')} 
       style={styles.container}
     >
-      <SafeAreaView style={styles.safeArea}>
-        <KeyboardAvoidingView 
-          style={styles.keyboardContainer}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
-          {/* Header */}
-          <View style={styles.header}>
-            <Pressable style={styles.backButton} onPress={() => router.back()}>
-              <Ionicons name="arrow-back" size={24} color={Colors.text.inverse} />
-            </Pressable>
-            <View style={styles.headerContent}>
-              <Text style={styles.headerTitle}>Bottle Chat</Text>
-              <Text style={styles.headerSubtitle}>
-                with {chatData.bottle.creator_name}
-              </Text>
-            </View>
-            <Pressable style={styles.optionsButton}>
-              <Ionicons name="ellipsis-vertical" size={24} color={Colors.text.inverse} />
-            </Pressable>
+
+      <KeyboardAvoidingView 
+        style={styles.keyboardContainer}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        {/* Header */}
+        <View style={styles.header}>
+          <Pressable style={styles.closeButton} onPress={() => router.replace('/(tabs)')}>
+            <Ionicons name="close" size={24} color={Colors.text.inverse} />
+          </Pressable>
+          <View style={styles.headerContent}>
+            <Text style={styles.headerTitle}>Bottle Chat</Text>
+            <Text style={styles.headerSubtitle}>
+              with {chatData.bottle.creator_name}
+            </Text>
           </View>
+          <Pressable style={styles.optionsButton} onPress={() => setShowOptionsMenu(true)}>
+            <Ionicons name="ellipsis-vertical" size={24} color={Colors.text.inverse} />
+          </Pressable>
+        </View>
 
           {/* Messages */}
           <FlatList
@@ -315,20 +386,10 @@ export default function ChatScreen() {
 
           {/* Input area */}
           <View style={styles.inputContainer}>
-            {!senderName && (
-              <TextInput
-                style={styles.nameInput}
-                placeholder="Enter your name..."
-                placeholderTextColor="rgba(255, 255, 255, 0.6)"
-                value={senderName}
-                onChangeText={setSenderName}
-                maxLength={50}
-              />
-            )}
             <View style={styles.messageInputContainer}>
               <TextInput
                 style={styles.messageInput}
-                placeholder="Type a message..."
+                placeholder={`Type a message as ${username || 'Voyager'}...`}
                 placeholderTextColor="rgba(255, 255, 255, 0.6)"
                 value={newMessage}
                 onChangeText={setNewMessage}
@@ -337,9 +398,9 @@ export default function ChatScreen() {
                 textAlignVertical="top"
               />
               <Pressable 
-                style={[styles.sendButton, (!newMessage.trim() || !senderName.trim() || sendReplyMutation.isPending) && styles.sendButtonDisabled]}
+                style={[styles.sendButton, (!newMessage.trim() || !username?.trim() || sendReplyMutation.isPending) && styles.sendButtonDisabled]}
                 onPress={handleSendMessage}
-                disabled={!newMessage.trim() || !senderName.trim() || sendReplyMutation.isPending}
+                disabled={!newMessage.trim() || !username?.trim() || sendReplyMutation.isPending}
               >
                 {sendReplyMutation.isPending ? (
                   <ActivityIndicator size="small" color={Colors.text.primary} />
@@ -350,16 +411,42 @@ export default function ChatScreen() {
             </View>
           </View>
         </KeyboardAvoidingView>
-      </SafeAreaView>
-    </ImageBackground>
-  );
-}
+
+        {/* Options Menu Modal */}
+        <Modal
+          visible={showOptionsMenu}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => setShowOptionsMenu(false)}
+        >
+          <Pressable 
+            style={styles.modalOverlay} 
+            onPress={() => setShowOptionsMenu(false)}
+          >
+            <View style={styles.optionsMenu}>
+              <Pressable style={styles.optionItem} onPress={handleAddFriend}>
+                <Ionicons name="person-add" size={20} color={Colors.text.inverse} />
+                <Text style={styles.optionText}>Add Friend</Text>
+              </Pressable>
+              
+              <View style={styles.optionSeparator} />
+              
+              <Pressable style={styles.optionItem} onPress={handleDeleteChat}>
+                <Ionicons name="trash" size={20} color={Colors.accent.coral} />
+                <Text style={[styles.optionText, styles.deleteOptionText]}>Delete Chat</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Modal>
+      </ImageBackground>
+    );
+  }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  safeArea: {
+  backgroundImage: {
     flex: 1,
   },
   keyboardContainer: {
@@ -410,13 +497,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.md,
+    paddingTop: Platform.OS === 'ios' ? 60 : 40,
     backgroundColor: 'rgba(1, 67, 72, 0.9)',
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.1)',
   },
-  backButton: {
-    padding: Spacing.sm,
+  closeButton: {
+    width: 40,
+    height: 40,
+    borderRadius: BorderRadius.full,
+    backgroundColor: 'rgba(1, 67, 72, 0.8)',
+    alignItems: 'center',
+    justifyContent: 'center',
     marginRight: Spacing.md,
+    ...Shadows.base,
   },
   headerContent: {
     flex: 1,
@@ -491,6 +585,7 @@ const styles = StyleSheet.create({
   messageContainer: {
     marginVertical: Spacing.xs,
     maxWidth: '80%',
+    paddingHorizontal: Spacing.md,
   },
   myMessage: {
     alignSelf: 'flex-end',
@@ -499,41 +594,60 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   messageContent: {
-    backgroundColor: 'rgba(1, 67, 72, 0.8)',
     borderRadius: BorderRadius.lg,
     padding: Spacing.md,
-    gap: Spacing.xs,
+  },
+  messageHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.xs,
+    minHeight: 20,
+  },
+  myMessageContent: {
+    backgroundColor: Colors.accent.mustardSea,
+    borderBottomRightRadius: 4,
+  },
+  theirMessageContent: {
+    backgroundColor: 'rgba(1, 67, 72, 0.8)',
+    borderBottomLeftRadius: 4,
   },
   messageSender: {
     fontSize: Typography.sizes.xs,
-    color: Colors.accent.mustardSea,
     fontWeight: Typography.weights.semibold,
+    flex: 1,
+    marginRight: Spacing.sm,
+  },
+  myMessageSender: {
+    color: Colors.text.primary,
+  },
+  theirMessageSender: {
+    color: Colors.accent.mustardSea,
   },
   messageText: {
     fontSize: Typography.sizes.md,
     lineHeight: Typography.lineHeights.normal * Typography.sizes.md,
   },
   myMessageText: {
-    color: Colors.text.inverse,
+    color: Colors.text.primary,
   },
   theirMessageText: {
     color: Colors.text.inverse,
+  },
+  messageTime: {
+    fontSize: Typography.sizes.xs,
+  },
+  myMessageTime: {
+    color: 'rgba(0, 0, 0, 0.6)',
+  },
+  theirMessageTime: {
+    color: 'rgba(255, 255, 255, 0.6)',
   },
   messagePhoto: {
     width: 150,
     height: 150,
     borderRadius: BorderRadius.md,
     resizeMode: 'cover',
-  },
-  messageTime: {
-    fontSize: Typography.sizes.xs,
-    alignSelf: 'flex-end',
-  },
-  myMessageTime: {
-    color: Colors.text.secondary,
-  },
-  theirMessageTime: {
-    color: Colors.text.secondary,
   },
   inputContainer: {
     paddingHorizontal: Spacing.lg,
@@ -579,5 +693,42 @@ const styles = StyleSheet.create({
   },
   sendButtonDisabled: {
     opacity: 0.5,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-start',
+    alignItems: 'flex-end',
+    paddingTop: 100, // Position below header
+    paddingRight: Spacing.lg,
+  },
+  optionsMenu: {
+    backgroundColor: 'rgba(1, 67, 72, 0.95)',
+    borderRadius: BorderRadius.lg,
+    paddingVertical: Spacing.sm,
+    minWidth: 150,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    ...Shadows.lg,
+  },
+  optionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    gap: Spacing.md,
+  },
+  optionText: {
+    fontSize: Typography.sizes.md,
+    color: Colors.text.inverse,
+    fontWeight: Typography.weights.medium,
+  },
+  deleteOptionText: {
+    color: Colors.accent.coral,
+  },
+  optionSeparator: {
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    marginHorizontal: Spacing.lg,
   },
 }); 

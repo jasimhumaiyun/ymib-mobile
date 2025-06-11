@@ -5,7 +5,8 @@ import { BarcodeScanningResult } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { supabase } from '../lib/supabase';
-import { Colors, Typography, Spacing } from '../constants/theme';
+import { useUserProfiles } from '../hooks/useUserProfiles';
+import { Colors, Typography, Spacing, BorderRadius, Shadows } from '../constants/theme';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 interface SmartBottleScannerProps {
@@ -22,6 +23,7 @@ export default function SmartBottleScanner({ onRouteToToss, onRouteToFound, onRo
   const [manualPassword, setManualPassword] = useState('');
   const [isScanning, setIsScanning] = useState(true);
   const [isChecking, setIsChecking] = useState(false);
+  const { username } = useUserProfiles();
 
   // Reset scanning state when showing manual input
   useEffect(() => {
@@ -45,12 +47,10 @@ export default function SmartBottleScanner({ onRouteToToss, onRouteToFound, onRo
     setIsChecking(true);
     
     try {
-
-      
-      // Check if bottle exists in database
+      // Check if bottle exists in database (no password needed)
       const { data: bottle, error } = await supabase
         .from('bottles')
-        .select('id, status, password_hash')
+        .select('id, status, creator_name, tosser_name, created_at')
         .eq('id', bottleData.id)
         .maybeSingle();
 
@@ -68,22 +68,60 @@ export default function SmartBottleScanner({ onRouteToToss, onRouteToFound, onRo
         return;
       }
 
-      // Case 2: Bottle exists but wrong password
-      if (bottle.password_hash !== bottleData.password) {
-        Alert.alert('Invalid Password', 'The password you entered is incorrect.');
-        setIsChecking(false);
-        return;
-      }
-
-      // Case 3: Bottle exists with correct password
+      // Case 2: Bottle exists - route based on status  
       if (bottle.status === 'adrift') {
-        setIsChecking(false);
-        onRouteToFound(bottleData);
+        // Check if this user was the last person to toss this bottle
+        const currentUser = username?.trim().toLowerCase() || '';
+        const lastTosser = bottle.tosser_name?.trim().toLowerCase() || '';
+        
+        if (currentUser === lastTosser && currentUser !== '') {
+          // Same user trying to scan their own bottle that they tossed
+          Alert.alert(
+            'Already Tossed', 
+            'You already tossed this bottle! It\'s now floating in the digital ocean waiting for someone else to find it.\n\nDon\'t forget to toss the physical bottle as well!',
+            [{ text: 'Got it!', onPress: () => setIsChecking(false) }]
+          );
+          return;
+        } else {
+          // Different user can find the bottle
+          setIsChecking(false);
+          onRouteToFound(bottleData);
+        }
       } else if (bottle.status === 'found') {
-        setIsChecking(false);
-        onRouteToRetossDecision(bottleData);
+        // For found bottles, check who can retoss
+        // Get the last event to see who found this bottle
+        const { data: lastEvent, error: eventError } = await supabase
+          .from('bottle_events')
+          .select('event_type, finder_name, tosser_name')
+          .eq('bottle_id', bottle.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single();
+        
+        if (eventError || !lastEvent) {
+          setIsChecking(false);
+          onRouteToFound(bottleData);
+          return;
+        }
+
+        // Check if current user was the finder
+        const currentUser = username?.trim().toLowerCase() || '';
+        const lastFinder = lastEvent.finder_name?.trim().toLowerCase() || '';
+
+        if (lastEvent.event_type === 'found' && currentUser === lastFinder && currentUser !== '') {
+          // This is the person who found it - they can retoss
+          setIsChecking(false);
+          onRouteToRetossDecision(bottleData);
+        } else {
+          // Someone else trying to scan a found bottle
+          Alert.alert(
+            'Bottle Already Found',
+            `This bottle was already found by ${lastEvent.finder_name || 'another user'}. Once a bottle is found, only the finder can retoss it.`,
+            [{ text: 'Got it!', onPress: () => setIsChecking(false) }]
+          );
+        }
       } else {
-        // This shouldn't happen, but handle gracefully
+        // Unknown status - default to found flow
         setIsChecking(false);
         onRouteToFound(bottleData);
       }
@@ -143,11 +181,11 @@ export default function SmartBottleScanner({ onRouteToToss, onRouteToFound, onRo
   const handleDevMode = (testBottleNumber: number) => {
     if (isChecking) return; // Prevent multiple clicks
     
-    // Simple test bottle data for development - using UUID format
+    // Use consistent UUIDs for test bottles (no passwords needed)
     const testBottles = [
-      { id: '00000000-0000-0000-0000-000000000001', password: 'pass123' },
-      { id: '00000000-0000-0000-0000-000000000002', password: 'pass456' },
-      { id: '00000000-0000-0000-0000-000000000003', password: 'pass789' },
+      { id: '550e8400-e29b-41d4-a716-446655440001', password: 'simple123' },
+      { id: '550e8400-e29b-41d4-a716-446655440002', password: 'simple123' },
+      { id: '550e8400-e29b-41d4-a716-446655440003', password: 'simple123' },
     ];
     
     const testBottle = testBottles[testBottleNumber - 1];
@@ -191,10 +229,10 @@ export default function SmartBottleScanner({ onRouteToToss, onRouteToFound, onRo
     return (
       <TouchableWithoutFeedback onPress={dismissKeyboard}>
         <SafeAreaView style={styles.container} edges={['top']}>
-          {/* Universal Back to Home Button */}
+          {/* Universal Close Button */}
           <View style={styles.topBar}>
-            <Pressable style={styles.backButton} onPress={onCancel}>
-              <Text style={styles.backButtonText}>← Home</Text>
+            <Pressable style={styles.closeButton} onPress={onCancel}>
+              <Ionicons name="close" size={24} color={Colors.text.inverse} />
             </Pressable>
           </View>
 
@@ -298,10 +336,10 @@ export default function SmartBottleScanner({ onRouteToToss, onRouteToFound, onRo
         }}
       >
         <SafeAreaView style={styles.overlay} edges={['top']}>
-          {/* Universal Back to Home Button */}
+          {/* Universal Close Button */}
           <View style={styles.topBar}>
-            <Pressable style={styles.backButton} onPress={onCancel}>
-              <Text style={styles.backButtonText}>← Home</Text>
+            <Pressable style={styles.closeButton} onPress={onCancel}>
+              <Ionicons name="close" size={24} color={Colors.text.inverse} />
             </Pressable>
           </View>
 
@@ -588,14 +626,13 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  backButton: {
-    padding: 8,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  backButtonText: {
-    color: Colors.neutral[300],
-    fontSize: 14,
-    fontWeight: Typography.weights.medium,
+  closeButton: {
+    width: 40,
+    height: 40,
+    borderRadius: BorderRadius.full,
+    backgroundColor: 'rgba(1, 67, 72, 0.8)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Shadows.base,
   },
 }); 

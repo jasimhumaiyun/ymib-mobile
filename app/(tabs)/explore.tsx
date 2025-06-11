@@ -1,8 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, Platform, ImageBackground } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
-import { useBottleTrail, BottleTrailMarker } from '../../src/hooks/useBottleTrail';
-import { useBottleStats } from '../../src/hooks/useBottleStats';
+import { useBottleTrail } from '../../src/hooks/useBottleTrail';
+import { BottleTrailMarker } from '../../src/types/bottle';
+import { useGlobalStats } from '../../src/hooks/useGlobalStats';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
@@ -83,15 +84,14 @@ export default function WorldMapScreen() {
   
   const qc = useQueryClient();
   const { data: trailMarkers, isLoading, error } = useBottleTrail(true);
-  const { data: statsData, refetch: refetchStats } = useBottleStats();
+  const { data: globalStats, refetch: refetchGlobalStats } = useGlobalStats();
 
   // Refresh map data whenever this tab is focused
   useFocusEffect(
     React.useCallback(() => {
-
       qc.invalidateQueries({ queryKey: ['bottles-complete-trail'] });
-      refetchStats();
-    }, [qc, refetchStats])
+      refetchGlobalStats();
+    }, [qc, refetchGlobalStats])
   );
 
   // Filter trail markers with proper spacing
@@ -192,18 +192,19 @@ export default function WorldMapScreen() {
     });
   }, [filteredMarkers]);
 
-  // Calculate counts for filters - use accurate stats for created/found/retossed, trail markers for all
+  // Calculate counts for filters - use global stats for all data
   const counts = useMemo(() => {
-    const stats = statsData || { created: 0, found: 0, retossed: 0 };
-    const allCount = trailMarkers?.length || 0;
+    if (!globalStats) {
+      return { all: 0, created: 0, found: 0, retossed: 0 };
+    }
     
     return {
-      all: allCount,
-      created: stats.created,
-      found: stats.found,
-      retossed: stats.retossed,
+      all: globalStats.totalBottles,
+      created: globalStats.totalBottles, // Total bottles created globally
+      found: globalStats.totalFound,
+      retossed: globalStats.totalRetossed,
     };
-  }, [trailMarkers, statsData]);
+  }, [globalStats]);
 
   if (isLoading) {
     return (
@@ -250,9 +251,9 @@ export default function WorldMapScreen() {
         <View style={styles.header}>
           <Text style={styles.title}>Global Ocean Chart</Text>
           <Text style={styles.subtitle}>
-            {counts.all > 0 
-              ? `${counts.all} messages drift across ${counts.all === 1 ? 'the sea' : 'the seas'}`
-              : 'The oceans await your first message'
+            {globalStats?.totalBottles 
+              ? `${globalStats.totalBottles} messages drift across the seas • ${globalStats.activeBottles} currently adrift`
+              : 'The oceans await the first message'
             }
           </Text>
         </View>
